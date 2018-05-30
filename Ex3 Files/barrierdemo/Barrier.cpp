@@ -2,11 +2,10 @@
 #include <cstdlib>
 #include <cstdio>
 
-Barrier::Barrier(int numThreads)
- : mutex(PTHREAD_MUTEX_INITIALIZER)
- , cv(PTHREAD_COND_INITIALIZER)
- , count(0)
- , numThreads(numThreads)
+Barrier::Barrier(int numThreads) : mutex(PTHREAD_MUTEX_INITIALIZER),
+								   cv(PTHREAD_COND_INITIALIZER),
+								   count(0),
+								   numThreads(numThreads)
 { }
 
 

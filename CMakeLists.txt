@@ -3,5 +3,5 @@ project(os_ex3)
 
 set(CMAKE_CXX_STANDARD 11)
 
-set(SOURCE_FILES main.cpp)
+set(SOURCE_FILES MapReduceClient.cpp MapReduceFramework.cpp)
 add_executable(os_ex3 ${SOURCE_FILES})

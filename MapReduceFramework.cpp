@@ -98,7 +98,8 @@ void* threadsPart(void* arg);
 // ---------------------------- helper methods & structs --------------------------
 
 // primary version
-void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
+// updates vector of vectors of pairs: key and value
+void shuffle(IntermediateVec* inputVec, ThreadContext* context){
 
     // gets sorted intermediary vectors
     // elements are popped from the back of each vector
@@ -108,51 +109,53 @@ void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
     // use mutex to protect access to the queue
 
     K2* currentKey = nullptr;
-    // vector of vectors of pairs: key and value
-    std::vector<std::vector<K2*, V2*>> vecQueue;
-    // maybe shouldn't be declared here - how will it work with the threads?
-    // todo
 
     // init first vector for first key
     sem_wait(context->semaphore);
-    vecQueue.emplace_back(std::vector<K2*, V2*>());
+    context->intermediateVecQueue->emplace_back(std::vector<K2*, V2*>());
     sem_post(context->semaphore);
 
-
     // elements are popped from the back of each vector
-    while (!intermediateVec->empty())
+    while (!inputVec->empty())
     {
         // iterate over intermediate vec - insert all values with a certain key
         // in a sequence
         if (currentKey == nullptr) // first key
         {
-            currentKey = intermediateVec->back().first;
+            currentKey = inputVec->back().first;
         }
-        else if (currentKey != intermediateVec->back().first) // new key
+        else if (currentKey != inputVec->back().first) // new key
         {
             // prev key is done -> should change keys
-            currentKey = intermediateVec->back().first;
+            currentKey = inputVec->back().first;
             sem_wait(context->semaphore);
-            vecQueue.emplace_back(std::vector<K2*, V2*>());
+            context->intermediateVecQueue->emplace_back(std::vector<K2*, V2*>());
             sem_post(context->semaphore);
         }
         // now key is identical to the one at the back of the vector
 
         // enter value to the sequence (the vector of key CurrentKey)
         sem_wait(context->semaphore);
-        vecQueue.back().emplace_back(intermediateVec->back());
+        context->intermediateVecQueue->back().emplace_back(inputVec->back());
         sem_post(context->semaphore);
-        intermediateVec->pop_back();
+        inputVec->pop_back();
 
     }
-
-
     // todo - from instructions:
     // difficult to split efficiently into parallel threads - so we
     // run parallel with Reduce
 }
 
-void reduce()
+void reduce(ThreadContext* context){
+    // calls client func reduce for each vector in the vector queue
+    for (int i=0; i<context->intermediateVecQueue->size(); i++)
+    {
+        sem_wait(context->semaphore);
+        context->client->reduce(&(context->intermediateVecQueue->at(i)), context);
+        sem_post(context->semaphore);
+    }
+
+}
 
 // ------------------------------- todo's -----------------------------
 // make sure all sys calls are ok
@@ -230,7 +233,7 @@ void runMapReduceFramework(const MapReduceClient& client,
     // initialize context for all threads:
     pthread_t threads[multiThreadLevel];
     std::atomic<int> atomic_pairs_counter(0);
-    std::vector<IntermediatePair> intermediateVec = {};
+    std::vector<IntermediateVec> intermediateVec = {};
     auto vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
     auto IntermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;

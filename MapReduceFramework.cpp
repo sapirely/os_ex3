@@ -12,6 +12,7 @@
 #include <atomic>
 #include <algorithm>
 #include <functional>
+#include <semaphore.h>
 
 using namespace std;
 // ------------------------------- globals -----------------------------
@@ -84,6 +85,8 @@ struct ThreadContext {
     std::vector<IntermediatePair>* intermidiateVec;
     const int multiThreadLevel;
     Barrier* barrier;
+    sem_t* semaphore;
+    pthread_mutex_t* mutex; //
 };
 
 // -------------------------- inner funcs ------------------------------
@@ -94,7 +97,7 @@ void* threadsPart(void* arg);
 // ---------------------------- helper methods & structs --------------------------
 
 // primary version
-void shuffle(IntermediateVec intermediateVec){ // todo: I think that's supposed to be a pointer -?
+void shuffle(IntermediateVec* intermediateVec){
 
     // gets sorted intermediary vectors
     // elements are popped from the back of each vector
@@ -110,29 +113,29 @@ void shuffle(IntermediateVec intermediateVec){ // todo: I think that's supposed 
     // todo
 
     // elements are popped from the back of each vector
-    while (!intermediateVec.empty())
+    while (!intermediateVec->empty())
     {
         // iterate over intermediate vec - insert all values with a certain key
         // in a sequence
         if (currentKey == nullptr) // first key
         {
-            currentKey = intermediateVec.back().first;
+            currentKey = intermediateVec->back().first;
             // create new sequence
             pair<K2*, std::vector<V2*>> newSequence;
             vecQueue.push_back(newSequence);
         }
-        else if (currentKey != intermediateVec.back().first)
+        else if (currentKey != intermediateVec->back().first)
         {
                 // prev key is done -> should change keys
-                currentKey = intermediateVec.back().first;
+                currentKey = intermediateVec->back().first;
                 pair<K2*, std::vector<V2*>> newSequence;
                 vecQueue.push_back(newSequence);
         }
         // now key is identical to the one at the back of the vector
 
         // enter value to the sequence (the vector of key CurrentKey)
-        vecQueue.back().second.push_back(intermediateVec.back().second);
-        intermediateVec.pop_back();
+        vecQueue.back().second.push_back(intermediateVec->back().second);
+        intermediateVec->pop_back();
 
     }
 
@@ -173,6 +176,7 @@ void* threadsPart(void* arg)
     // call map:
     K1* key;
     V1* val;
+    std::vector<IntermediatePair>* localIntermediateVec = {};
     while (*threadCtx->atomic_counter <= threadCtx->inputVec->size())
         //todo: what does it mean, that a thread that has finished a job returns to the pool?
         // todo: use pthread_cond_wait instead of the while?
@@ -180,11 +184,10 @@ void* threadsPart(void* arg)
         old_value = (*(threadCtx->atomic_counter))++;
         key = (*threadCtx->inputVec)[old_value].first;
         val = (*threadCtx->inputVec)[old_value].second;
-        (*threadCtx->client).map(key, val, threadCtx->intermidiateVec);
+        (*threadCtx->client).map(key, val, localIntermediateVec);
     }
 
-    // todo: sort intermediate-pairs vector -> depends on intermediateVec
-//    std::sort((*threadCtx->intermidiateVec).begin(), (*threadCtx->intermidiateVec).end()); // todo: catch exceptions.
+    std::sort((*localIntermediateVec).begin(), (*localIntermediateVec).end()); // todo: catch exceptions.
 
     if (!pthread_self()) // if it's the main thread (0)
     {
@@ -214,12 +217,16 @@ void runMapReduceFramework(const MapReduceClient& client,
     // initialize context (containers pointers, etc.) for all threads:
     pthread_t threads[multiThreadLevel];
     std::atomic<int> atomic_pairs_counter(0);
+    sem_t sem;
+    int ret = sem_init(&sem, 0, 1); // todo: check args + ret value
+    auto mutex = PTHREAD_MUTEX_INITIALIZER;
+
+
     ThreadContext threadCtx = {&atomic_pairs_counter, &inputVec, &client, nullptr,
-                               multiThreadLevel, new Barrier(multiThreadLevel)}; //todo: intermediateVec!!!
+                               multiThreadLevel, new Barrier(multiThreadLevel), &sem, &mutex}; //todo: intermediateVec!!!
 
 
     // create threads & atomic counter:
-    int ret;
     for (int i = 0; i < multiThreadLevel; i++)
     {
         ret = pthread_create(&threads[i], nullptr, threadsPart, &threadCtx);

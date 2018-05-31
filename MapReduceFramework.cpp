@@ -208,13 +208,14 @@ void* threadsPart(void* arg)
     threadCtx->barrier->barrier();
 
     // reduce:
-    while (true)
+    while (true) // todo: how to stop waiting?
     {
-
-
+        sem_wait(threadCtx->semaphore);
+        pthread_mutex_lock(threadCtx->IntermediateVecMutex);
+        IntermediateVec* in = threadCtx->intermediateVec;
+        pthread_mutex_unlock(threadCtx->IntermediateVecMutex);
+        threadCtx->client->reduce(in, &threadCtx);
     }
-    // todo: wait on the semaphor
-
 
 }
 

@@ -82,7 +82,7 @@ struct ThreadContext {
     std::atomic<int>* atomic_counter;
     const InputVec* inputVec;
     const MapReduceClient* client;
-    std::vector<IntermediatePair>* intermediateVec;
+    std::vector<IntermediateVec>* intermediateVecQueue;
     const int multiThreadLevel;
     Barrier* barrier;
     sem_t* semaphore;
@@ -151,6 +151,8 @@ void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
     // difficult to split efficiently into parallel threads - so we
     // run parallel with Reduce
 }
+
+void reduce()
 
 // ------------------------------- todo's -----------------------------
 // make sure all sys calls are ok

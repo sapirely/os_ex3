@@ -15,7 +15,6 @@
 #include <semaphore.h>
 
 using namespace std;
-// ------------------------------- globals -----------------------------
 
 // ---------------------------- Barrier class --------------------------
 
@@ -79,15 +78,17 @@ void Barrier::barrier()
  * pthread_create.
  */
 struct ThreadContext {
-    std::atomic<int>* atomic_counter;
     const InputVec* inputVec;
     const MapReduceClient* client;
-    std::vector<IntermediateVec>* intermediateVecQueue;
+    std::atomic<int>* atomic_counter;
     const int multiThreadLevel;
+    pthread_t mainThreadId;
+    bool* doneShuffling;
+    std::vector<IntermediateVec>* intermediateVecQueue;
     Barrier* barrier;
-    sem_t* semaphore;
     pthread_mutex_t* vecQueueMutex;
     pthread_mutex_t* IntermediateVecMutex;
+    sem_t* semaphore;
 };
 
 // -------------------------- inner funcs ------------------------------
@@ -95,7 +96,7 @@ struct ThreadContext {
 
 void* threadsPart(void* arg);
 
-// ---------------------------- helper methods & structs --------------------------
+// ---------------------------- helper methods --------------------------
 
 // primary version
 // updates vector of vectors of pairs: key and value
@@ -157,6 +158,18 @@ void reduce(ThreadContext* context){
 
 }
 
+/**
+ * Performs cleanups and exits with exitCode.
+ */
+void exitLib(ThreadContext* threadCtx, int exitCode)
+{
+    delete threadCtx->barrier;
+    sem_destroy(threadCtx->semaphore);
+    pthread_mutex_destroy(threadCtx->IntermediateVecMutex);
+    pthread_mutex_destroy(threadCtx->vecQueueMutex);
+    exit(exitCode);
+}
+
 // ------------------------------- todo's -----------------------------
 // make sure all sys calls are ok
 
@@ -190,8 +203,7 @@ void* threadsPart(void* arg)
     V1* val;
     IntermediateVec localIntermediateVec = {};
     while (*threadCtx->atomic_counter <= threadCtx->inputVec->size())
-        //todo: what does it mean, that a thread that has finished a job returns to the pool?
-        // todo: use pthread_cond_wait instead of the while?
+        //todo: pool?
     {
         old_value = (*(threadCtx->atomic_counter))++;
         key = (*threadCtx->inputVec)[old_value].first;
@@ -199,23 +211,35 @@ void* threadsPart(void* arg)
         (*threadCtx->client).map(key, val, &localIntermediateVec);
     }
 
-    std::sort((localIntermediateVec).begin(), (localIntermediateVec).end()); // todo: catch exceptions.
-    if (!pthread_self()) // if it's the main thread (0)
-    {
-        shuffle(&localIntermediateVec, threadCtx);
+    // sort:
+    try {
+        std::sort((localIntermediateVec).begin(), (localIntermediateVec).end());
+    }
+    catch (const std::bad_alloc& e) {
+        std::cerr << "An error has occurred while sorting." << std::endl;
+        exitLib(threadCtx, 1);
     }
 
+    if (pthread_self() == threadCtx->mainThreadId) // if it's the main thread, start shuffling.
+    {
+        shuffle(&localIntermediateVec, threadCtx);
+        *(threadCtx->doneShuffling) = true;
+    }
     threadCtx->barrier->barrier();
 
     // reduce:
-    while (true) // todo: how to stop waiting?
+    while (!(threadCtx->doneShuffling && (*threadCtx->intermediateVecQueue).empty()))
     {
         sem_wait(threadCtx->semaphore);
         pthread_mutex_lock(threadCtx->IntermediateVecMutex);
-        IntermediateVec* in = threadCtx->intermediateVec;
+        IntermediateVec* pair = &((*threadCtx->intermediateVecQueue).back()); // pair is a key (char)
+        // and a vector intermediateVec - counts from all threads of the key char.
+        (*threadCtx->intermediateVecQueue).pop_back();
         pthread_mutex_unlock(threadCtx->IntermediateVecMutex);
-        threadCtx->client->reduce(in, &threadCtx);
+        threadCtx->client->reduce(pair, &threadCtx);
     }
+
+    // is something supposed to happen when the thread is done?
 
 }
 
@@ -231,10 +255,17 @@ void runMapReduceFramework(const MapReduceClient& client,
                            const InputVec& inputVec, OutputVec& outputVec,
                            int multiThreadLevel){
 
-    // initialize context for all threads:
-    pthread_t threads[multiThreadLevel];
+    // initialize context's variables & containers:
+    ThreadContext threadCtx;
+    pthread_t threads[multiThreadLevel - 1];
     std::atomic<int> atomic_pairs_counter(0);
+    pthread_t mainThreadId = pthread_self();
+    bool doneShuffling = false;
+    std::vector<IntermediateVec>* intermediateVecQueue = {};
     std::vector<IntermediateVec> intermediateVec = {};
+
+    // initialize barrier, mutexes & semaphore:
+    auto barrier = new Barrier(multiThreadLevel);
     auto vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
     auto IntermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
@@ -242,22 +273,26 @@ void runMapReduceFramework(const MapReduceClient& client,
     if (ret != 0)
     {
         fprintf(stderr, "An error has occurred while initializing the semaphore.");
-        exit(1);
+        exitLib(&threadCtx, 1);
     }
-    ThreadContext threadCtx = {&atomic_pairs_counter, &inputVec, &client, &intermediateVec,
-                               multiThreadLevel, new Barrier(multiThreadLevel),
-                               &sem, &vecQueueMutex, &IntermediateVecMutex};
 
-    // create threads & atomic counter:
-    for (int i = 0; i < multiThreadLevel; i++)
+    // create context for all threads:
+     threadCtx = {&inputVec, &client, &atomic_pairs_counter, multiThreadLevel,
+                               mainThreadId, &doneShuffling, intermediateVecQueue, barrier,
+                               &vecQueueMutex, &IntermediateVecMutex, &sem};
+
+    // create threads:
+    for (int i = 0; i < multiThreadLevel - 1; i++)
     {
         ret = pthread_create(&threads[i], nullptr, threadsPart, &threadCtx);
         if (!ret)
         {
-            // ERROR, do something.
+            fprintf(stderr, "An error has occurred while creating a thread.");
+            exitLib(&threadCtx, 1);
         }
     }
     threadsPart(nullptr);
 
+    exitLib(&threadCtx, 0);
 
 }

@@ -97,7 +97,7 @@ void* threadsPart(void* arg);
 // ---------------------------- helper methods & structs --------------------------
 
 // primary version
-void shuffle(IntermediateVec* intermediateVec){
+void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
 
     // gets sorted intermediary vectors
     // elements are popped from the back of each vector
@@ -108,7 +108,8 @@ void shuffle(IntermediateVec* intermediateVec){
 
     K2* currentKey = nullptr;
     // vector of pairs: key, and a vector of values
-    std::vector<std::pair<K2*, std::vector<V2*>>> vecQueue;
+//    std::vector<std::pair<K2*, std::vector<V2*>>> vecQueue;
+    std::vector<std::vector<K2*, V2*>> vecQueue;
     // maybe shouldn't be declared here - how will it work with the threads?
     // todo
 
@@ -121,20 +122,29 @@ void shuffle(IntermediateVec* intermediateVec){
         {
             currentKey = intermediateVec->back().first;
             // create new sequence
-            pair<K2*, std::vector<V2*>> newSequence;
-            vecQueue.push_back(newSequence);
+            std::vector<K2*, V2*> newVec;
+
+//            pair<K2*, std::vector<V2*>> newSequence;
+            sem_wait(context->semaphore);
+//            vecQueue.push_back(newSequence);
+            vecQueue.push_back(newVec);
+            sem_post(context->semaphore);
         }
         else if (currentKey != intermediateVec->back().first)
         {
-                // prev key is done -> should change keys
-                currentKey = intermediateVec->back().first;
-                pair<K2*, std::vector<V2*>> newSequence;
-                vecQueue.push_back(newSequence);
+            // prev key is done -> should change keys
+            currentKey = intermediateVec->back().first;
+            pair<K2*, std::vector<V2*>> newSequence;
+            sem_wait(context->semaphore);
+//            vecQueue.push_back(newSequence);
+            sem_post(context->semaphore);
         }
         // now key is identical to the one at the back of the vector
 
         // enter value to the sequence (the vector of key CurrentKey)
+        sem_wait(context->semaphore);
         vecQueue.back().second.push_back(intermediateVec->back().second);
+        sem_post(context->semaphore);
         intermediateVec->pop_back();
 
     }

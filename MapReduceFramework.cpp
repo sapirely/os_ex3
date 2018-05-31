@@ -171,7 +171,7 @@ void exitLib(ThreadContext* threadCtx, int exitCode)
 }
 
 // ------------------------------- todo's -----------------------------
-// make sure all sys calls are ok
+
 
 
 // ---------------------------- library methods -------------------------
@@ -203,7 +203,6 @@ void* threadsPart(void* arg)
     V1* val;
     IntermediateVec localIntermediateVec = {};
     while (*threadCtx->atomic_counter <= threadCtx->inputVec->size())
-        //todo: pool?
     {
         old_value = (*(threadCtx->atomic_counter))++;
         key = (*threadCtx->inputVec)[old_value].first;

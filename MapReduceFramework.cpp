@@ -94,7 +94,8 @@ void* threadsPart(void* arg);
 // ---------------------------- helper methods & structs --------------------------
 
 // primary version
-void shuffle(IntermediateVec intermediateVec){ // todo: I think that's supposed to be a pointer -?
+void shuffle(IntermediateVec* intermediateVec){ // todo: I think that's
+// supposed to be a pointer -?
 
     // gets sorted intermediary vectors
     // elements are popped from the back of each vector
@@ -110,29 +111,29 @@ void shuffle(IntermediateVec intermediateVec){ // todo: I think that's supposed 
     // todo
 
     // elements are popped from the back of each vector
-    while (!intermediateVec.empty())
+    while (!intermediateVec->empty())
     {
         // iterate over intermediate vec - insert all values with a certain key
         // in a sequence
         if (currentKey == nullptr) // first key
         {
-            currentKey = intermediateVec.back().first;
+            currentKey = intermediateVec->back().first;
             // create new sequence
             pair<K2*, std::vector<V2*>> newSequence;
             vecQueue.push_back(newSequence);
         }
-        else if (currentKey != intermediateVec.back().first)
+        else if (currentKey != intermediateVec->back().first)
         {
                 // prev key is done -> should change keys
-                currentKey = intermediateVec.back().first;
+                currentKey = intermediateVec->back().first;
                 pair<K2*, std::vector<V2*>> newSequence;
                 vecQueue.push_back(newSequence);
         }
         // now key is identical to the one at the back of the vector
 
         // enter value to the sequence (the vector of key CurrentKey)
-        vecQueue.back().second.push_back(intermediateVec.back().second);
-        intermediateVec.pop_back();
+        vecQueue.back().second.push_back(intermediateVec->back().second);
+        intermediateVec->pop_back();
 
     }
 

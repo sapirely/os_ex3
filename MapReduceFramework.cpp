@@ -107,11 +107,16 @@ void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
     // use mutex to protect access to the queue
 
     K2* currentKey = nullptr;
-    // vector of pairs: key, and a vector of values
-//    std::vector<std::pair<K2*, std::vector<V2*>>> vecQueue;
+    // vector of vectors of pairs: key and value
     std::vector<std::vector<K2*, V2*>> vecQueue;
     // maybe shouldn't be declared here - how will it work with the threads?
     // todo
+
+    // init first vector for first key
+    sem_wait(context->semaphore);
+    vecQueue.emplace_back(std::vector<K2*, V2*>());
+    sem_post(context->semaphore);
+
 
     // elements are popped from the back of each vector
     while (!intermediateVec->empty())
@@ -121,29 +126,20 @@ void shuffle(IntermediateVec* intermediateVec, ThreadContext* context){
         if (currentKey == nullptr) // first key
         {
             currentKey = intermediateVec->back().first;
-            // create new sequence
-            std::vector<K2*, V2*> newVec;
-
-//            pair<K2*, std::vector<V2*>> newSequence;
-            sem_wait(context->semaphore);
-//            vecQueue.push_back(newSequence);
-            vecQueue.push_back(newVec);
-            sem_post(context->semaphore);
         }
-        else if (currentKey != intermediateVec->back().first)
+        else if (currentKey != intermediateVec->back().first) // new key
         {
             // prev key is done -> should change keys
             currentKey = intermediateVec->back().first;
-            pair<K2*, std::vector<V2*>> newSequence;
             sem_wait(context->semaphore);
-//            vecQueue.push_back(newSequence);
+            vecQueue.emplace_back(std::vector<K2*, V2*>());
             sem_post(context->semaphore);
         }
         // now key is identical to the one at the back of the vector
 
         // enter value to the sequence (the vector of key CurrentKey)
         sem_wait(context->semaphore);
-        vecQueue.back().second.push_back(intermediateVec->back().second);
+        vecQueue.back().emplace_back(intermediateVec->back());
         sem_post(context->semaphore);
         intermediateVec->pop_back();
 

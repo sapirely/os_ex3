@@ -290,7 +290,7 @@ void runMapReduceFramework(const MapReduceClient& client,
             exitLib(&threadCtx, 1);
         }
     }
-    threadsPart(nullptr);
+    threadsPart(&threadCtx);
 
     exitLib(&threadCtx, 0);
 

@@ -72,26 +72,81 @@ void Barrier::barrier()
     }
 }
 
-// -------------------------- helper struct ------------------------------
-/**
- * Gathers all the variables needed for threadsPart(), since we can pass only 1 arg (void*) in
- * pthread_create.
- */
-struct ThreadContext {
+// -------------------------- class GeneralContext------------------------------
+class GeneralContext
+{
+public:
     const InputVec* inputVec;
     OutputVec* outputVec;
     const MapReduceClient* client;
     std::atomic<int>* atomic_counter;
-    const int multiThreadLevel;
     pthread_t mainThreadId;
     bool* doneShuffling;
     std::vector<IntermediateVec>* intermediateVecQueue;
     Barrier* barrier;
     pthread_mutex_t* vecQueueMutex;
-    pthread_mutex_t* IntermediateVecMutex;
+    pthread_mutex_t* intermediateVecMutex;
     pthread_mutex_t* outputVecMutex;
     sem_t* semaphore;
+    GeneralContext(const InputVec* inputVec, OutputVec* outputVec,
+                   const MapReduceClient* client, std::atomic<int>* atomic_counter,
+                   pthread_t mainThreadId, bool* doneShuffling,
+                   std::vector<IntermediateVec>* intermediateVecQueue,
+                   Barrier* barrier, pthread_mutex_t* vecQueueMutex,
+                   pthread_mutex_t* IntermediateVecMutex,
+                   pthread_mutex_t* outputVecMutex, sem_t* semaphore):
+            inputVec(inputVec), outputVec(outputVec), client(client),
+            atomic_counter(atomic_counter), mainThreadId(mainThreadId),
+            doneShuffling(doneShuffling), intermediateVecQueue
+                    (intermediateVecQueue), barrier(barrier), vecQueueMutex
+                    (vecQueueMutex), intermediateVecMutex
+                    (IntermediateVecMutex), outputVecMutex(outputVecMutex),
+            semaphore(semaphore){}
 };
+
+// -------------------------- class ThreadCtx ------------------------------
+class ThreadCtx
+{
+public:
+    GeneralContext* generalCtx;
+    IntermediateVec* intermediatePairs;
+    ThreadCtx(GeneralContext* generalCtx,
+    IntermediateVec* intermediatePairs): generalCtx(generalCtx),
+                                        intermediatePairs(intermediatePairs){}
+    ThreadCtx()
+    {
+        generalCtx = nullptr;
+        intermediatePairs = nullptr;
+    }
+};
+
+
+
+// -------------------------- helper struct ------------------------------
+/**
+ * Gathers all the variables needed for threadsPart(), since we can pass only 1 arg (void*) in
+ * pthread_create.
+ */
+//typedef struct GeneralContext {
+//    const InputVec* inputVec;
+//    OutputVec* outputVec;
+//    const MapReduceClient* client;
+//    std::atomic<int>* atomic_counter;
+//    pthread_t mainThreadId;
+//    bool* doneShuffling;
+//    std::vector<IntermediateVec>* intermediateVecQueue;
+//    Barrier* barrier;
+//    pthread_mutex_t* vecQueueMutex;
+//    pthread_mutex_t* intermediateVecMutex;
+//    pthread_mutex_t* outputVecMutex;
+//    sem_t* semaphore;
+//} GeneralContext;
+
+
+//typedef struct ThreadContext {
+//    GeneralContext* generalCtx = nullptr;
+//    IntermediateVec intermediatePairs = nullptr;
+//} ThreadContext;
 
 // -------------------------- inner funcs ------------------------------
 // declarations so we can keep up with our funcs
@@ -103,53 +158,63 @@ void* threadsPart(void* arg);
 
 // primary version
 // updates vector of vectors of pairs: key and value
-void shuffle(IntermediateVec* inputVec, ThreadContext* context){
+//void shuffle(IntermediateVec* inputVec, ThreadCtx* context){
+//
+//    // gets sorted intermediary vectors
+//    // elements are popped from the back of each vector
+//    //todo:
+//    // use semaphore for counting vectors
+//    // whenever a new vector is inserted to the queue, call sem_post()
+//    // use mutex to protect access to the queue
+//
+//    K2* currentKey = nullptr;
+//
+//    // init first vector for first key
+////    sem_wait(context->generalCtx->semaphore);
+////    context->generalCtx->intermediateVecQueue->emplace_back();
+////    sem_post(context->generalCtx->semaphore);
+//
+//    IntermediateVec currentVector= {};
+//    // elements are popped from the back of each vector
+//    while (!inputVec->empty())
+//    {
+//
+//        // iterate over intermediate vec - insert all values with a certain key
+//        // in a sequence
+//        if (currentKey == nullptr) // first key
+//        {
+//            currentKey = inputVec->back().first;
+//        }
+//        else if (currentKey != inputVec->back().first) // new key
+//        {
+//            // prev key is done -> should change keys
+//            currentKey = inputVec->back().first;
+//            sem_wait(context->generalCtx->semaphore);
+//            context->generalCtx->intermediateVecQueue->push_back(currentVector);
+//            sem_post(context->generalCtx->semaphore);
+//            currentVector = {};
+//        }
+//        // now key is identical to the one at the back of the vector
+//
+//        // enter value to the sequence (the vector of key CurrentKey)
+//        sem_wait(context->generalCtx->semaphore);
+////        context->generalCtx->intermediateVecQueue->back().push_back
+////                ((inputVec->back());
+//        currentVector.push_back(inputVec->back());
+//        sem_post(context->generalCtx->semaphore);
+//        inputVec->pop_back();
+//
+//    }
+//    // todo - from instructions:
+//    // run parallel with Reduce
+//}
 
-    // gets sorted intermediary vectors
-    // elements are popped from the back of each vector
-    //todo:
-    // use semaphore for counting vectors
-    // whenever a new vector is inserted to the queue, call sem_post()
-    // use mutex to protect access to the queue
 
-    K2* currentKey = nullptr;
+void shuffle(){
 
-    // init first vector for first key
-    sem_wait(context->semaphore);
-    context->intermediateVecQueue->emplace_back(std::vector<K2*, V2*>());
-    sem_post(context->semaphore);
-
-    // elements are popped from the back of each vector
-    while (!inputVec->empty())
-    {
-        // iterate over intermediate vec - insert all values with a certain key
-        // in a sequence
-        if (currentKey == nullptr) // first key
-        {
-            currentKey = inputVec->back().first;
-        }
-        else if (currentKey != inputVec->back().first) // new key
-        {
-            // prev key is done -> should change keys
-            currentKey = inputVec->back().first;
-            sem_wait(context->semaphore);
-            context->intermediateVecQueue->emplace_back(std::vector<K2*, V2*>());
-            sem_post(context->semaphore);
-        }
-        // now key is identical to the one at the back of the vector
-
-        // enter value to the sequence (the vector of key CurrentKey)
-        sem_wait(context->semaphore);
-        context->intermediateVecQueue->back().emplace_back(inputVec->back());
-        sem_post(context->semaphore);
-        inputVec->pop_back();
-
-    }
-    // todo - from instructions:
-    // run parallel with Reduce
 }
 
-void reduce(ThreadContext* context){
+void reduce(GeneralContext* context){
     // calls client func reduce for each vector in the vector queue
     for (int i=0; i<context->intermediateVecQueue->size(); i++)
     {
@@ -163,13 +228,13 @@ void reduce(ThreadContext* context){
 /**
  * Performs cleanups and exits with exitCode.
  */
-void exitLib(ThreadContext* threadCtx, int exitCode)
+void exitLib(ThreadCtx* threadCtx, int exitCode)
 {
-    delete threadCtx->barrier;
-    sem_destroy(threadCtx->semaphore);
-    pthread_mutex_destroy(threadCtx->IntermediateVecMutex);
-    pthread_mutex_destroy(threadCtx->vecQueueMutex);
-    pthread_mutex_destroy(threadCtx->outputVecMutex);
+    delete threadCtx->generalCtx->barrier;
+    sem_destroy(threadCtx->generalCtx->semaphore);
+    pthread_mutex_destroy(threadCtx->generalCtx->intermediateVecMutex);
+    pthread_mutex_destroy(threadCtx->generalCtx->vecQueueMutex);
+    pthread_mutex_destroy(threadCtx->generalCtx->outputVecMutex);
     exit(exitCode);
 }
 
@@ -183,15 +248,16 @@ void exitLib(ThreadContext* threadCtx, int exitCode)
  * Called in Map phase
  */
 void emit2 (K2* key, V2* value, void* context){
-    // should append k2,v2 to the thread's vector - but after map that is
-    // localIntermediateVec for us - maybe needs to be changed
+    auto tc = (ThreadCtx*) context;
+    tc->intermediatePairs->emplace_back(make_pair(key,value)); //todo
+
 }
 
 /**
  * Called in Reduce phase
  */
 void emit3 (K3* key, V3* value, void* context){
-    ThreadContext* tc = (ThreadContext*) context;
+    auto tc = (GeneralContext*) context;
     if (pthread_mutex_lock(tc->outputVecMutex) != 0){
         fprintf(stderr, "[[Output]] error on pthread_mutex_lock");
         exit(1);
@@ -208,48 +274,53 @@ void emit3 (K3* key, V3* value, void* context){
  */
 void* threadsPart(void* arg)
 {
-    auto threadCtx = (ThreadContext*) arg;
+    auto threadCtx = (ThreadCtx*) arg;
     int old_value;
 
     // call map:
     K1* key;
     V1* val;
     IntermediateVec localIntermediateVec = {};
-    while (*threadCtx->atomic_counter <= threadCtx->inputVec->size())
+    while (*threadCtx->generalCtx->atomic_counter <=
+            threadCtx->generalCtx->inputVec->size())
     {
-        old_value = (*(threadCtx->atomic_counter))++;
-        key = (*threadCtx->inputVec)[old_value].first;
-        val = (*threadCtx->inputVec)[old_value].second;
-        (*threadCtx->client).map(key, val, &localIntermediateVec);
+        old_value = (*(threadCtx->generalCtx->atomic_counter))++;
+        key = (*threadCtx->generalCtx->inputVec)[old_value].first;
+        val = (*threadCtx->generalCtx->inputVec)[old_value].second;
+        (*threadCtx->generalCtx->client).map(key, val, &threadCtx);
         // map should get context
     }
 
     // sort:
     try {
         std::sort((localIntermediateVec).begin(), (localIntermediateVec).end());
+        // sort pairs - does it sort using the k2 operator?
     }
     catch (const std::bad_alloc& e) {
         std::cerr << "An error has occurred while sorting." << std::endl;
         exitLib(threadCtx, 1);
     }
 
-    if (pthread_self() == threadCtx->mainThreadId) // if it's the main thread, start shuffling.
+    if (pthread_self() == threadCtx->generalCtx->mainThreadId) // if it's the
+        // main thread, start shuffling.
     {
         shuffle(&localIntermediateVec, threadCtx);
-        *(threadCtx->doneShuffling) = true;
+        *(threadCtx->generalCtx->doneShuffling) = true;
     }
-    threadCtx->barrier->barrier();
+    threadCtx->generalCtx->barrier->barrier();
 
     // reduce:
-    while (!(threadCtx->doneShuffling && (*threadCtx->intermediateVecQueue).empty()))
+    while (!(threadCtx->generalCtx->doneShuffling &&
+            (*threadCtx->generalCtx->intermediateVecQueue).empty()))
     {
-        sem_wait(threadCtx->semaphore);
-        pthread_mutex_lock(threadCtx->IntermediateVecMutex);
-        IntermediateVec* pair = &((*threadCtx->intermediateVecQueue).back()); // pair is a key (char)
+        sem_wait(threadCtx->generalCtx->semaphore);
+        pthread_mutex_lock(threadCtx->generalCtx->intermediateVecMutex);
+        IntermediateVec* pair = &((*threadCtx->generalCtx
+                ->intermediateVecQueue).back()); // pair is a key (char)
         // and a vector intermediateVec - counts from all threads of the key char.
-        (*threadCtx->intermediateVecQueue).pop_back();
-        pthread_mutex_unlock(threadCtx->IntermediateVecMutex);
-        threadCtx->client->reduce(pair, &threadCtx);
+        (*threadCtx->generalCtx->intermediateVecQueue).pop_back();
+        pthread_mutex_unlock(threadCtx->generalCtx->intermediateVecMutex);
+        threadCtx->generalCtx->client->reduce(pair, &threadCtx);
     }
 
     // is something supposed to happen when the thread is done?
@@ -269,7 +340,6 @@ void runMapReduceFramework(const MapReduceClient& client,
                            int multiThreadLevel){
 
     // initialize context's variables & containers:
-    ThreadContext threadCtx;
     pthread_t threads[multiThreadLevel - 1];
     std::atomic<int> atomic_pairs_counter(0);
     pthread_t mainThreadId = pthread_self();
@@ -279,35 +349,53 @@ void runMapReduceFramework(const MapReduceClient& client,
 
     // initialize barrier, mutexes & semaphore:
     auto barrier = new Barrier(multiThreadLevel);
-    auto vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
-    auto IntermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
-    auto outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t intermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
     int ret = sem_init(&sem, 0, 1);
     if (ret != 0)
     {
         fprintf(stderr, "An error has occurred while initializing the semaphore.");
-        exitLib(&threadCtx, 1);
+        sem_destroy(&sem);
+        pthread_mutex_destroy(&intermediateVecMutex);
+        pthread_mutex_destroy(&vecQueueMutex);
+        pthread_mutex_destroy(&outputVecMutex);
+        exit(1);
+//        exitLib(&threadsCtxs[0], 1);
     }
 
     // create context for all threads:
-     threadCtx = {&inputVec, &outputVec, &client, &atomic_pairs_counter,
-                  multiThreadLevel, mainThreadId, &doneShuffling,
-                  intermediateVecQueue, barrier, &vecQueueMutex,
-                  &IntermediateVecMutex, &outputVecMutex, &sem};
+    GeneralContext* generalContext = new GeneralContext(&inputVec,
+                                                        &outputVec, &client,
+                                                       &atomic_pairs_counter,
+                                                       mainThreadId, &doneShuffling,
+                                                       intermediateVecQueue, barrier, &vecQueueMutex,
+                                                       &intermediateVecMutex,
+                                                       &outputVecMutex, &sem);
+
+//    GeneralContext generalContext = {&inputVec, &outputVec, &client,
+//                                &atomic_pairs_counter,
+//                  mainThreadId, &doneShuffling,
+//                  intermediateVecQueue, barrier, &vecQueueMutex,
+//                  &intermediateVecMutex, &outputVecMutex, &sem};
+    ThreadCtx threadsCtxs[multiThreadLevel];
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)
     {
-        ret = pthread_create(&threads[i], nullptr, threadsPart, &threadCtx);
+        *(threadsCtxs[0].intermediatePairs) = IntermediateVec();
+        threadsCtxs[0].generalCtx = generalContext;
+        ret = pthread_create(&threads[i], nullptr, threadsPart,
+                             &threadsCtxs[i]);
         if (!ret)
         {
             fprintf(stderr, "An error has occurred while creating a thread.");
-            exitLib(&threadCtx, 1);
+            exitLib(&threadsCtxs[i], 1);
         }
     }
-    threadsPart(&threadCtx);
+    threadsPart(&threadsCtxs[0]);
 
-    exitLib(&threadCtx, 0);
+    exitLib(&threadsCtxs[0], 0);
 
 }

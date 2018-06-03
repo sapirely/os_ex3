@@ -211,11 +211,11 @@ void* threadsPart(void* arg);
 void shuffle(GeneralContext* genCtx){
     std::vector<IntermediateVec> shuffledVectors;
     IntermediateVec currentVector;
-    K2* maxKey = genCtx->intermediateVecQueue->at(0).back().first;
+    K2* maxKey = genCtx->mapNSortOutput->at(0).back().first;
 
     K2* nextKey = maxKey;
     // find min key
-    for (auto vector : *(genCtx->intermediateVecQueue))
+    for (auto vector : *(genCtx->mapNSortOutput))
     {
         if (maxKey < vector.back().first)
         {
@@ -223,31 +223,31 @@ void shuffle(GeneralContext* genCtx){
         }
     }
 
-    int numOfVectors = (int) genCtx->intermediateVecQueue->size();
+    int numOfVectors = (int) genCtx->mapNSortOutput->size();
 
-    while (!genCtx->intermediateVecQueue->empty())
+    while (!genCtx->mapNSortOutput->empty())
     {
         currentVector = {};
         // add all pairs with maxKey to currentVector
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
-            sem_wait(genCtx->semaphore);
-            while (maxKey == genCtx->intermediateVecQueue->at(j).back().first)
+            while (maxKey == genCtx->mapNSortOutput->at(j).back().first)
             {
                 currentVector.emplace_back(
-                        genCtx->intermediateVecQueue->at(j).back());
-                genCtx->intermediateVecQueue->at(j).pop_back();
+                        genCtx->mapNSortOutput->at(j).back());
+                genCtx->mapNSortOutput->at(j).pop_back();
             }
             // if the next key in the current vector is bigger than maxKey,
             // put it in nextKey
-            if (nextKey < genCtx->intermediateVecQueue->at(j).back().first)
+            if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
             {
-                nextKey = genCtx->intermediateVecQueue->at(j).back().first;
+                nextKey = genCtx->mapNSortOutput->at(j).back().first;
             }
-            sem_post(genCtx->semaphore);
         }
-        shuffledVectors.push_back(currentVector);
+        pthread_mutex_lock(genCtx->reduceMutex);
+        genCtx->shuffleOutput->push_back(currentVector);
+        pthread_mutex_unlock(genCtx->reduceMutex);
     }
 }
 

@@ -76,31 +76,30 @@ void Barrier::barrier()
 class GeneralContext
 {
 public:
-    const InputVec* inputVec;
+    const InputVec* MapInputVector;
     OutputVec* outputVec;
     const MapReduceClient* client;
-    std::atomic<int>* atomic_counter;
+    std::atomic<int>* atomicCounter;
     pthread_t mainThreadId;
     bool* doneShuffling;
-    std::vector<IntermediateVec>* intermediateVecQueue;
+    std::vector<IntermediateVec>* mapNSortOutput;
+    std::vector<IntermediateVec>* shuffleOutput;
     Barrier* barrier;
-    pthread_mutex_t* vecQueueMutex;
-    pthread_mutex_t* intermediateVecMutex;
+    pthread_mutex_t* reduceMutex;
     pthread_mutex_t* outputVecMutex;
     sem_t* semaphore;
+
     GeneralContext(const InputVec* inputVec, OutputVec* outputVec,
-                   const MapReduceClient* client, std::atomic<int>* atomic_counter,
+                   const MapReduceClient* client, std::atomic<int>* atomicCounter,
                    pthread_t mainThreadId, bool* doneShuffling,
                    std::vector<IntermediateVec>* intermediateVecQueue,
-                   Barrier* barrier, pthread_mutex_t* vecQueueMutex,
-                   pthread_mutex_t* IntermediateVecMutex,
+                   Barrier* barrier, pthread_mutex_t* IntermediateVecMutex,
                    pthread_mutex_t* outputVecMutex, sem_t* semaphore):
-            inputVec(inputVec), outputVec(outputVec), client(client),
-            atomic_counter(atomic_counter), mainThreadId(mainThreadId),
-            doneShuffling(doneShuffling), intermediateVecQueue
-                    (intermediateVecQueue), barrier(barrier), vecQueueMutex
-                    (vecQueueMutex), intermediateVecMutex
-                    (IntermediateVecMutex), outputVecMutex(outputVecMutex),
+            MapInputVector(inputVec), outputVec(outputVec), client(client),
+            atomicCounter(atomicCounter), mainThreadId(mainThreadId),
+            doneShuffling(doneShuffling), mapNSortOutput(mapNSortOutput),
+            shuffleOutput(shuffleOutput), barrier(barrier),
+            reduceMutex(IntermediateVecMutex), outputVecMutex(outputVecMutex),
             semaphore(semaphore){}
 };
 
@@ -109,15 +108,11 @@ class ThreadCtx
 {
 public:
     GeneralContext* generalCtx;
-    IntermediateVec* intermediatePairs;
-    ThreadCtx(GeneralContext* generalCtx,
-    IntermediateVec* intermediatePairs): generalCtx(generalCtx),
-                                        intermediatePairs(intermediatePairs){}
-    ThreadCtx()
-    {
-        generalCtx = nullptr;
-        intermediatePairs = nullptr;
-    }
+    IntermediateVec* localMapOutput;
+
+    ThreadCtx(GeneralContext* generalCtx, IntermediateVec* localMapOutput):
+            generalCtx(generalCtx), localMapOutput(localMapOutput){}
+    ThreadCtx(): generalCtx(nullptr), localMapOutput(nullptr){}
 };
 
 
@@ -158,7 +153,7 @@ void* threadsPart(void* arg);
 
 // primary version
 // updates vector of vectors of pairs: key and value
-//void shuffle(IntermediateVec* inputVec, ThreadCtx* context){
+//void shuffle(IntermediateVec* MapInputVector, ThreadCtx* context){
 //
 //    // gets sorted intermediary vectors
 //    // elements are popped from the back of each vector
@@ -176,7 +171,7 @@ void* threadsPart(void* arg);
 //
 //    IntermediateVec currentVector= {};
 //    // elements are popped from the back of each vector
-//    while (!inputVec->empty())
+//    while (!MapInputVector->empty())
 //    {
 //
 //        // iterate over intermediate vec - insert all values with a certain key
@@ -185,12 +180,12 @@ void* threadsPart(void* arg);
 //        {
 //            currentKey = inputVec->back().first;
 //        }
-//        else if (currentKey != inputVec->back().first) // new key
+//        else if (currentKey != MapInputVector->back().first) // new key
 //        {
 //            // prev key is done -> should change keys
-//            currentKey = inputVec->back().first;
+//            currentKey = MapInputVector->back().first;
 //            sem_wait(context->generalCtx->semaphore);
-//            context->generalCtx->intermediateVecQueue->push_back(currentVector);
+//            context->generalCtx->mapNSortOutput->push_back(currentVector);
 //            sem_post(context->generalCtx->semaphore);
 //            currentVector = {};
 //        }
@@ -198,11 +193,14 @@ void* threadsPart(void* arg);
 //
 //        // enter value to the sequence (the vector of key CurrentKey)
 //        sem_wait(context->generalCtx->semaphore);
+////        context->generalCtx->intermediateVecQueue->back().push_back
+////                ((inputVec->back());
+//        currentVector.push_back(MapInputVector->back());
 //        context->generalCtx->intermediateVecQueue->back().push_back
 //                ((inputVec->back());
 //        currentVector.push_back(inputVec->back());
 //        sem_post(context->generalCtx->semaphore);
-//        inputVec->pop_back();
+//        MapInputVector->pop_back();
 //
 //    }
 //    // todo - from instructions:
@@ -253,16 +251,16 @@ void shuffle(GeneralContext* genCtx){
     }
 }
 
-void reduce(GeneralContext* context){
-    // calls client func reduce for each vector in the vector queue
-    for (int i=0; i<context->intermediateVecQueue->size(); i++)
-    {
-        sem_wait(context->semaphore);
-        context->client->reduce(&(context->intermediateVecQueue->at(i)), context);
-        sem_post(context->semaphore);
-    }
-
-}
+//void reduce(GeneralContext* context){
+//    // calls client func reduce for each vector in the vector queue
+//    for (int i=0; i<context->mapNSortOutput->size(); i++)
+//    {
+//        sem_wait(context->semaphore);
+//        context->client->reduce(&(context->mapNSortOutput->at(i)), context);
+//        sem_post(context->semaphore);
+//    }
+//
+//}
 
 /**
  * Performs cleanups and exits with exitCode.
@@ -271,8 +269,7 @@ void exitLib(ThreadCtx* threadCtx, int exitCode)
 {
     delete threadCtx->generalCtx->barrier;
     sem_destroy(threadCtx->generalCtx->semaphore);
-    pthread_mutex_destroy(threadCtx->generalCtx->intermediateVecMutex);
-    pthread_mutex_destroy(threadCtx->generalCtx->vecQueueMutex);
+    pthread_mutex_destroy(threadCtx->generalCtx->reduceMutex);
     pthread_mutex_destroy(threadCtx->generalCtx->outputVecMutex);
     exit(exitCode);
 }
@@ -288,7 +285,7 @@ void exitLib(ThreadCtx* threadCtx, int exitCode)
  */
 void emit2 (K2* key, V2* value, void* context){
     auto tc = (ThreadCtx*) context;
-    tc->intermediatePairs->emplace_back(make_pair(key,value)); //todo
+    tc->localMapOutput->emplace_back(make_pair(key,value)); //todo
 
 }
 
@@ -316,50 +313,51 @@ void* threadsPart(void* arg)
     auto threadCtx = (ThreadCtx*) arg;
     int old_value;
 
-    // call map:
+    // call map on MapInputVector's elements:
     K1* key;
     V1* val;
-    IntermediateVec localIntermediateVec = {};
-    while (*threadCtx->generalCtx->atomic_counter <=
-            threadCtx->generalCtx->inputVec->size())
+    while (*threadCtx->generalCtx->atomicCounter <= threadCtx->generalCtx->MapInputVector->size())
     {
-        old_value = (*(threadCtx->generalCtx->atomic_counter))++;
-        key = (*threadCtx->generalCtx->inputVec)[old_value].first;
-        val = (*threadCtx->generalCtx->inputVec)[old_value].second;
+        old_value = (*(threadCtx->generalCtx->atomicCounter))++;
+        key = (*threadCtx->generalCtx->MapInputVector)[old_value].first;
+        val = (*threadCtx->generalCtx->MapInputVector)[old_value].second;
         (*threadCtx->generalCtx->client).map(key, val, &threadCtx);
-        // map should get context
+
+        // sort the resulting vector of pairs and push it to the queue of intermediate vectors:
+        try {
+            std::sort((*threadCtx->localMapOutput).begin(), (*threadCtx->localMapOutput).end());
+            threadCtx->generalCtx->mapNSortOutput->push_back((*threadCtx->localMapOutput));
+        }
+        catch (const std::bad_alloc& e) {
+            std::cerr << "An error has occurred while sorting." << std::endl;
+            exitLib(threadCtx, 1);
+        }
     }
 
-    // sort:
-    try {
-        std::sort((localIntermediateVec).begin(), (localIntermediateVec).end());
-        // sort pairs - does it sort using the k2 operator?
-    }
-    catch (const std::bad_alloc& e) {
-        std::cerr << "An error has occurred while sorting." << std::endl;
-        exitLib(threadCtx, 1);
-    }
-
-    if (pthread_self() == threadCtx->generalCtx->mainThreadId) // if it's the
-        // main thread, start shuffling.
-    {
-        shuffle(&localIntermediateVec, threadCtx);
-        *(threadCtx->generalCtx->doneShuffling) = true;
-    }
+    // wait for all the other threads to finish map&sort:
     threadCtx->generalCtx->barrier->barrier();
 
-    // reduce:
-    while (!(threadCtx->generalCtx->doneShuffling &&
-            (*threadCtx->generalCtx->intermediateVecQueue).empty()))
+    // if it's the main thread, start shuffling.
+    if (pthread_self() == threadCtx->generalCtx->mainThreadId)
     {
+        shuffle(&(threadCtx->generalCtx), threadCtx);
+        *(threadCtx->generalCtx->doneShuffling) = true;
+    }
+
+
+    // reduce:
+    IntermediateVec sameKeyedpairs;
+    while (!(threadCtx->generalCtx->doneShuffling &&
+            (*threadCtx->generalCtx->mapNSortOutput).empty()))
+    {
+        // pop the last vector of same keyed pairs from the intermediate-vectors vector:
         sem_wait(threadCtx->generalCtx->semaphore);
-        pthread_mutex_lock(threadCtx->generalCtx->intermediateVecMutex);
-        IntermediateVec* pair = &((*threadCtx->generalCtx
-                ->intermediateVecQueue).back()); // pair is a key (char)
-        // and a vector intermediateVec - counts from all threads of the key char.
-        (*threadCtx->generalCtx->intermediateVecQueue).pop_back();
-        pthread_mutex_unlock(threadCtx->generalCtx->intermediateVecMutex);
-        threadCtx->generalCtx->client->reduce(pair, &threadCtx);
+        pthread_mutex_lock(threadCtx->generalCtx->reduceMutex);
+        sameKeyedpairs = (*threadCtx->generalCtx->shuffleOutput).back();
+        (*threadCtx->generalCtx->shuffleOutput).pop_back();
+        pthread_mutex_unlock(threadCtx->generalCtx->reduceMutex);
+        // call reduce on it:
+        threadCtx->generalCtx->client->reduce(&sameKeyedpairs, &threadCtx);
     }
 
     // is something supposed to happen when the thread is done?
@@ -383,13 +381,13 @@ void runMapReduceFramework(const MapReduceClient& client,
     std::atomic<int> atomic_pairs_counter(0);
     pthread_t mainThreadId = pthread_self();
     bool doneShuffling = false;
-    std::vector<IntermediateVec>* intermediateVecQueue = {};
-    std::vector<IntermediateVec> intermediateVec = {};
+    std::vector<IntermediateVec>* mapNsortOutput = {};
+    std::vector<IntermediateVec>* shuffleOutput = {};
+//    std::vector<IntermediateVec> intermediateVec = {};
 
     // initialize barrier, mutexes & semaphore:
     auto barrier = new Barrier(multiThreadLevel);
-    pthread_mutex_t vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_mutex_t intermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t reduceMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
     int ret = sem_init(&sem, 0, 1);
@@ -397,33 +395,30 @@ void runMapReduceFramework(const MapReduceClient& client,
     {
         fprintf(stderr, "An error has occurred while initializing the semaphore.");
         sem_destroy(&sem);
-        pthread_mutex_destroy(&intermediateVecMutex);
-        pthread_mutex_destroy(&vecQueueMutex);
+        pthread_mutex_destroy(&reduceMutex);
         pthread_mutex_destroy(&outputVecMutex);
         exit(1);
 //        exitLib(&threadsCtxs[0], 1);
     }
 
     // create context for all threads:
-    GeneralContext* generalContext = new GeneralContext(&inputVec,
-                                                        &outputVec, &client,
-                                                       &atomic_pairs_counter,
-                                                       mainThreadId, &doneShuffling,
-                                                       intermediateVecQueue, barrier, &vecQueueMutex,
-                                                       &intermediateVecMutex,
-                                                       &outputVecMutex, &sem);
+    auto generalContext = new GeneralContext(&inputVec, &outputVec, &client, &atomic_pairs_counter,
+                                             mainThreadId, &doneShuffling, mapNsortOutput, shuffleOutput,
+                                             barrier, &reduceMutex, &outputVecMutex, &sem);
 
-//    GeneralContext generalContext = {&inputVec, &outputVec, &client,
+//
+
+//    GeneralContext generalContext = {&MapInputVector, &outputVec, &client,
 //                                &atomic_pairs_counter,
 //                  mainThreadId, &doneShuffling,
-//                  intermediateVecQueue, barrier, &vecQueueMutex,
-//                  &intermediateVecMutex, &outputVecMutex, &sem};
+//                  mapNSortOutput, barrier, &vecQueueMutex,
+//                  &reduceMutex, &outputVecMutex, &sem};
     ThreadCtx threadsCtxs[multiThreadLevel];
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)
     {
-        *(threadsCtxs[0].intermediatePairs) = IntermediateVec();
+        threadsCtxs[0].localMapOutput = new IntermediateVec();
         threadsCtxs[0].generalCtx = generalContext;
         ret = pthread_create(&threads[i], nullptr, threadsPart,
                              &threadsCtxs[i]);

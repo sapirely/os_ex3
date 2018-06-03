@@ -198,8 +198,8 @@ void* threadsPart(void* arg);
 //
 //        // enter value to the sequence (the vector of key CurrentKey)
 //        sem_wait(context->generalCtx->semaphore);
-////        context->generalCtx->intermediateVecQueue->back().push_back
-////                ((inputVec->back());
+//        context->generalCtx->intermediateVecQueue->back().push_back
+//                ((inputVec->back());
 //        currentVector.push_back(inputVec->back());
 //        sem_post(context->generalCtx->semaphore);
 //        inputVec->pop_back();
@@ -210,8 +210,47 @@ void* threadsPart(void* arg);
 //}
 
 
-void shuffle(){
+void shuffle(GeneralContext* genCtx){
+    std::vector<IntermediateVec> shuffledVectors;
+    IntermediateVec currentVector;
+    K2* maxKey = genCtx->intermediateVecQueue->at(0).back().first;
 
+    K2* nextKey = maxKey;
+    // find min key
+    for (auto vector : *(genCtx->intermediateVecQueue))
+    {
+        if (maxKey < vector.back().first)
+        {
+            maxKey = vector.back().first;
+        }
+    }
+
+    int numOfVectors = (int) genCtx->intermediateVecQueue->size();
+
+    while (!genCtx->intermediateVecQueue->empty())
+    {
+        currentVector = {};
+        // add all pairs with maxKey to currentVector
+        for (int j = 0; j < numOfVectors; j++)
+        {
+            // pop all vectors with key maxKey into currentVector
+            sem_wait(genCtx->semaphore);
+            while (maxKey == genCtx->intermediateVecQueue->at(j).back().first)
+            {
+                currentVector.emplace_back(
+                        genCtx->intermediateVecQueue->at(j).back());
+                genCtx->intermediateVecQueue->at(j).pop_back();
+            }
+            // if the next key in the current vector is bigger than maxKey,
+            // put it in nextKey
+            if (nextKey < genCtx->intermediateVecQueue->at(j).back().first)
+            {
+                nextKey = genCtx->intermediateVecQueue->at(j).back().first;
+            }
+            sem_post(genCtx->semaphore);
+        }
+        shuffledVectors.push_back(currentVector);
+    }
 }
 
 void reduce(GeneralContext* context){

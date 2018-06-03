@@ -92,14 +92,16 @@ public:
     GeneralContext(const InputVec* inputVec, OutputVec* outputVec,
                    const MapReduceClient* client, std::atomic<int>* atomicCounter,
                    pthread_t mainThreadId, bool* doneShuffling,
-                   std::vector<IntermediateVec>* intermediateVecQueue,
-                   Barrier* barrier, pthread_mutex_t* IntermediateVecMutex,
+                   std::vector<IntermediateVec>* mapNSortOutput,
+                   std::vector<IntermediateVec>* shuffleOutput,
+                   Barrier* barrier, pthread_mutex_t* reduceMutex,
                    pthread_mutex_t* outputVecMutex, sem_t* semaphore):
+
             MapInputVector(inputVec), outputVec(outputVec), client(client),
             atomicCounter(atomicCounter), mainThreadId(mainThreadId),
             doneShuffling(doneShuffling), mapNSortOutput(mapNSortOutput),
             shuffleOutput(shuffleOutput), barrier(barrier),
-            reduceMutex(IntermediateVecMutex), outputVecMutex(outputVecMutex),
+            reduceMutex(reduceMutex), outputVecMutex(outputVecMutex),
             semaphore(semaphore){}
 };
 
@@ -340,7 +342,7 @@ void* threadsPart(void* arg)
     // if it's the main thread, start shuffling.
     if (pthread_self() == threadCtx->generalCtx->mainThreadId)
     {
-        shuffle(&(threadCtx->generalCtx), threadCtx);
+        shuffle(threadCtx->generalCtx);
         *(threadCtx->generalCtx->doneShuffling) = true;
     }
 
@@ -386,7 +388,7 @@ void runMapReduceFramework(const MapReduceClient& client,
 //    std::vector<IntermediateVec> intermediateVec = {};
 
     // initialize barrier, mutexes & semaphore:
-    auto barrier = new Barrier(multiThreadLevel);
+    auto barrier = Barrier(multiThreadLevel);
     pthread_mutex_t reduceMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
@@ -401,27 +403,19 @@ void runMapReduceFramework(const MapReduceClient& client,
 //        exitLib(&threadsCtxs[0], 1);
     }
 
-    // create context for all threads:
-    auto generalContext = new GeneralContext(&inputVec, &outputVec, &client, &atomic_pairs_counter,
-                                             mainThreadId, &doneShuffling, mapNsortOutput, shuffleOutput,
-                                             barrier, &reduceMutex, &outputVecMutex, &sem);
-
-//
-
-//    GeneralContext generalContext = {&MapInputVector, &outputVec, &client,
-//                                &atomic_pairs_counter,
-//                  mainThreadId, &doneShuffling,
-//                  mapNSortOutput, barrier, &vecQueueMutex,
-//                  &reduceMutex, &outputVecMutex, &sem};
+    // create the general context and the local context for every thread:
+    auto generalContext = GeneralContext(&inputVec, &outputVec, &client, &atomic_pairs_counter,
+                                             mainThreadId, &doneShuffling, mapNsortOutput,
+                                             shuffleOutput, &barrier, &reduceMutex, &outputVecMutex,
+                                             &sem);
     ThreadCtx threadsCtxs[multiThreadLevel];
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)
     {
-        threadsCtxs[0].localMapOutput = new IntermediateVec();
-        threadsCtxs[0].generalCtx = generalContext;
-        ret = pthread_create(&threads[i], nullptr, threadsPart,
-                             &threadsCtxs[i]);
+        *(threadsCtxs[i + 1].localMapOutput) = IntermediateVec();
+        threadsCtxs[i + 1].generalCtx = &generalContext;
+        ret = pthread_create(&threads[i], nullptr, threadsPart, &threadsCtxs[i]);
         if (!ret)
         {
             fprintf(stderr, "An error has occurred while creating a thread.");
@@ -429,7 +423,5 @@ void runMapReduceFramework(const MapReduceClient& client,
         }
     }
     threadsPart(&threadsCtxs[0]);
-
     exitLib(&threadsCtxs[0], 0);
-
 }

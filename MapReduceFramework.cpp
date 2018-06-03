@@ -149,67 +149,28 @@ public:
 // declarations so we can keep up with our funcs
 
 void* threadsPart(void* arg);
+bool areKeysEqual(K2* key1, K2* key2);
+void shuffle(GeneralContext* genCtx);
+void exitLib(ThreadCtx* threadCtx, int exitCode);
 
 // ---------------------------- helper methods --------------------------
 
+/**
+ * Checks if two K2* keys are equal (since they have a custom operator)+.
+ * @return True if equal, false otherwise.
+ */
+bool areKeysEqual(K2* key1, K2* key2){
+    if ((key1>key2) || (key1<key2))
+    {
+        return false;
+    }
+    return true;
+}
 
-// primary version
-// updates vector of vectors of pairs: key and value
-//void shuffle(IntermediateVec* MapInputVector, ThreadCtx* context){
-//
-//    // gets sorted intermediary vectors
-//    // elements are popped from the back of each vector
-//    //todo:
-//    // use semaphore for counting vectors
-//    // whenever a new vector is inserted to the queue, call sem_post()
-//    // use mutex to protect access to the queue
-//
-//    K2* currentKey = nullptr;
-//
-//    // init first vector for first key
-////    sem_wait(context->generalCtx->semaphore);
-////    context->generalCtx->intermediateVecQueue->emplace_back();
-////    sem_post(context->generalCtx->semaphore);
-//
-//    IntermediateVec currentVector= {};
-//    // elements are popped from the back of each vector
-//    while (!MapInputVector->empty())
-//    {
-//
-//        // iterate over intermediate vec - insert all values with a certain key
-//        // in a sequence
-//        if (currentKey == nullptr) // first key
-//        {
-//            currentKey = inputVec->back().first;
-//        }
-//        else if (currentKey != MapInputVector->back().first) // new key
-//        {
-//            // prev key is done -> should change keys
-//            currentKey = MapInputVector->back().first;
-//            sem_wait(context->generalCtx->semaphore);
-//            context->generalCtx->mapNSortOutput->push_back(currentVector);
-//            sem_post(context->generalCtx->semaphore);
-//            currentVector = {};
-//        }
-//        // now key is identical to the one at the back of the vector
-//
-//        // enter value to the sequence (the vector of key CurrentKey)
-//        sem_wait(context->generalCtx->semaphore);
-////        context->generalCtx->intermediateVecQueue->back().push_back
-////                ((inputVec->back());
-//        currentVector.push_back(MapInputVector->back());
-//        context->generalCtx->intermediateVecQueue->back().push_back
-//                ((inputVec->back());
-//        currentVector.push_back(inputVec->back());
-//        sem_post(context->generalCtx->semaphore);
-//        MapInputVector->pop_back();
-//
-//    }
-//    // todo - from instructions:
-//    // run parallel with Reduce
-//}
-
-
+/**
+ * Create vector of vectors with the same key.
+ * @param genCtx - general context
+ */
 void shuffle(GeneralContext* genCtx){
     std::vector<IntermediateVec> shuffledVectors;
     IntermediateVec currentVector;
@@ -234,13 +195,14 @@ void shuffle(GeneralContext* genCtx){
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
-            while (maxKey == genCtx->mapNSortOutput->at(j).back().first)
+            while (areKeysEqual(maxKey,genCtx->mapNSortOutput->at(j).back()
+                    .first))
             {
                 currentVector.emplace_back(
                         genCtx->mapNSortOutput->at(j).back());
                 genCtx->mapNSortOutput->at(j).pop_back();
             }
-            // if the next key in the current vector is bigger than maxKey,
+            // if the next key in the current vector is bigger than nextKey,
             // put it in nextKey
             if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
             {
@@ -318,7 +280,7 @@ void* threadsPart(void* arg)
     // call map on MapInputVector's elements:
     K1* key;
     V1* val;
-    while (*threadCtx->generalCtx->atomicCounter <= threadCtx->generalCtx->MapInputVector->size())
+    while ((threadCtx->generalCtx->atomicCounter->load()) < threadCtx->generalCtx->MapInputVector->size())
     {
         old_value = (*(threadCtx->generalCtx->atomicCounter))++;
         key = (*threadCtx->generalCtx->MapInputVector)[old_value].first;
@@ -388,7 +350,7 @@ void runMapReduceFramework(const MapReduceClient& client,
 //    std::vector<IntermediateVec> intermediateVec = {};
 
     // initialize barrier, mutexes & semaphore:
-    auto barrier = Barrier(multiThreadLevel);
+    auto barrier = new Barrier(multiThreadLevel);
     pthread_mutex_t reduceMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
@@ -404,17 +366,18 @@ void runMapReduceFramework(const MapReduceClient& client,
     }
 
     // create the general context and the local context for every thread:
-    auto generalContext = GeneralContext(&inputVec, &outputVec, &client, &atomic_pairs_counter,
+    auto generalContext = new GeneralContext(&inputVec, &outputVec, &client,
+                                          &atomic_pairs_counter,
                                              mainThreadId, &doneShuffling, mapNsortOutput,
-                                             shuffleOutput, &barrier, &reduceMutex, &outputVecMutex,
+                                             shuffleOutput, barrier, &reduceMutex, &outputVecMutex,
                                              &sem);
     ThreadCtx threadsCtxs[multiThreadLevel];
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)
     {
-        *(threadsCtxs[i + 1].localMapOutput) = IntermediateVec();
-        threadsCtxs[i + 1].generalCtx = &generalContext;
+        threadsCtxs[i].localMapOutput = {};
+        threadsCtxs[i].generalCtx = generalContext;
         ret = pthread_create(&threads[i], nullptr, threadsPart, &threadsCtxs[i]);
         if (!ret)
         {

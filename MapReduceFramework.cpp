@@ -79,6 +79,7 @@ void Barrier::barrier()
  */
 struct ThreadContext {
     const InputVec* inputVec;
+    OutputVec* outputVec;
     const MapReduceClient* client;
     std::atomic<int>* atomic_counter;
     const int multiThreadLevel;
@@ -88,6 +89,7 @@ struct ThreadContext {
     Barrier* barrier;
     pthread_mutex_t* vecQueueMutex;
     pthread_mutex_t* IntermediateVecMutex;
+    pthread_mutex_t* outputVecMutex;
     sem_t* semaphore;
 };
 
@@ -97,6 +99,7 @@ struct ThreadContext {
 void* threadsPart(void* arg);
 
 // ---------------------------- helper methods --------------------------
+
 
 // primary version
 // updates vector of vectors of pairs: key and value
@@ -143,7 +146,6 @@ void shuffle(IntermediateVec* inputVec, ThreadContext* context){
 
     }
     // todo - from instructions:
-    // difficult to split efficiently into parallel threads - so we
     // run parallel with Reduce
 }
 
@@ -167,6 +169,7 @@ void exitLib(ThreadContext* threadCtx, int exitCode)
     sem_destroy(threadCtx->semaphore);
     pthread_mutex_destroy(threadCtx->IntermediateVecMutex);
     pthread_mutex_destroy(threadCtx->vecQueueMutex);
+    pthread_mutex_destroy(threadCtx->outputVecMutex);
     exit(exitCode);
 }
 
@@ -180,14 +183,24 @@ void exitLib(ThreadContext* threadCtx, int exitCode)
  * Called in Map phase
  */
 void emit2 (K2* key, V2* value, void* context){
-
+    // should append k2,v2 to the thread's vector - but after map that is
+    // localIntermediateVec for us - maybe needs to be changed
 }
 
 /**
  * Called in Reduce phase
  */
 void emit3 (K3* key, V3* value, void* context){
-
+    ThreadContext* tc = (ThreadContext*) context;
+    if (pthread_mutex_lock(tc->outputVecMutex) != 0){
+        fprintf(stderr, "[[Output]] error on pthread_mutex_lock");
+        exit(1);
+    }
+    tc->outputVec->push_back(make_pair(key,value));
+    if (pthread_mutex_unlock(tc->outputVecMutex) != 0) {
+        fprintf(stderr, "[[Output]] error on pthread_mutex_unlock");
+        exit(1);
+    }
 }
 
 /**
@@ -208,6 +221,7 @@ void* threadsPart(void* arg)
         key = (*threadCtx->inputVec)[old_value].first;
         val = (*threadCtx->inputVec)[old_value].second;
         (*threadCtx->client).map(key, val, &localIntermediateVec);
+        // map should get context
     }
 
     // sort:
@@ -267,6 +281,7 @@ void runMapReduceFramework(const MapReduceClient& client,
     auto barrier = new Barrier(multiThreadLevel);
     auto vecQueueMutex = PTHREAD_MUTEX_INITIALIZER;
     auto IntermediateVecMutex = PTHREAD_MUTEX_INITIALIZER;
+    auto outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
     sem_t sem;
     int ret = sem_init(&sem, 0, 1);
     if (ret != 0)
@@ -276,9 +291,10 @@ void runMapReduceFramework(const MapReduceClient& client,
     }
 
     // create context for all threads:
-     threadCtx = {&inputVec, &client, &atomic_pairs_counter, multiThreadLevel,
-                               mainThreadId, &doneShuffling, intermediateVecQueue, barrier,
-                               &vecQueueMutex, &IntermediateVecMutex, &sem};
+     threadCtx = {&inputVec, &outputVec, &client, &atomic_pairs_counter,
+                  multiThreadLevel, mainThreadId, &doneShuffling,
+                  intermediateVecQueue, barrier, &vecQueueMutex,
+                  &IntermediateVecMutex, &outputVecMutex, &sem};
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)

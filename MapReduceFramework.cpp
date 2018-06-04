@@ -72,10 +72,11 @@ void Barrier::barrier()
     }
 }
 
-// -------------------------- class GeneralContext------------------------------
-class GeneralContext
+// -------------------------- struct GeneralContext------------------------------
+//
+
+typedef struct GeneralContext
 {
-public:
     const InputVec* MapInputVector;
     OutputVec* outputVec;
     const MapReduceClient* client;
@@ -88,34 +89,14 @@ public:
     pthread_mutex_t* reduceMutex;
     pthread_mutex_t* outputVecMutex;
     sem_t* semaphore;
+} GeneralContext;
 
-    GeneralContext(const InputVec* inputVec, OutputVec* outputVec,
-                   const MapReduceClient* client, std::atomic<int>* atomicCounter,
-                   pthread_t mainThreadId, bool* doneShuffling,
-                   std::vector<IntermediateVec>* mapNSortOutput,
-                   std::vector<IntermediateVec>* shuffleOutput,
-                   Barrier* barrier, pthread_mutex_t* reduceMutex,
-                   pthread_mutex_t* outputVecMutex, sem_t* semaphore):
-
-            MapInputVector(inputVec), outputVec(outputVec), client(client),
-            atomicCounter(atomicCounter), mainThreadId(mainThreadId),
-            doneShuffling(doneShuffling), mapNSortOutput(mapNSortOutput),
-            shuffleOutput(shuffleOutput), barrier(barrier),
-            reduceMutex(reduceMutex), outputVecMutex(outputVecMutex),
-            semaphore(semaphore){}
-};
-
-// -------------------------- class ThreadCtx ------------------------------
-class ThreadCtx
+// -------------------------- struct ThreadCtx ------------------------------
+typedef struct ThreadCtx
 {
-public:
     GeneralContext* generalCtx;
     IntermediateVec* localMapOutput;
-
-    ThreadCtx(GeneralContext* generalCtx, IntermediateVec* localMapOutput):
-            generalCtx(generalCtx), localMapOutput(localMapOutput){}
-    ThreadCtx(): generalCtx(nullptr), localMapOutput(nullptr){}
-};
+}ThreadCtx;
 
 
 
@@ -345,9 +326,8 @@ void runMapReduceFramework(const MapReduceClient& client,
     std::atomic<int> atomic_pairs_counter(0);
     pthread_t mainThreadId = pthread_self();
     bool doneShuffling = false;
-    std::vector<IntermediateVec>* mapNsortOutput = {};
-    std::vector<IntermediateVec>* shuffleOutput = {};
-//    std::vector<IntermediateVec> intermediateVec = {};
+    std::vector<IntermediateVec> mapNsortOutput = {};
+    std::vector<IntermediateVec> shuffleOutput = {};
 
     // initialize barrier, mutexes & semaphore:
     auto barrier = new Barrier(multiThreadLevel);
@@ -366,18 +346,23 @@ void runMapReduceFramework(const MapReduceClient& client,
     }
 
     // create the general context and the local context for every thread:
-    auto generalContext = new GeneralContext(&inputVec, &outputVec, &client,
-                                          &atomic_pairs_counter,
-                                             mainThreadId, &doneShuffling, mapNsortOutput,
-                                             shuffleOutput, barrier, &reduceMutex, &outputVecMutex,
-                                             &sem);
+//    auto generalContext = new GeneralContext(&inputVec, &outputVec, &client,
+//                                          &atomic_pairs_counter,
+//                                             mainThreadId, &doneShuffling, mapNsortOutput,
+//                                             shuffleOutput, barrier, &reduceMutex, &outputVecMutex,
+//                                             &sem);
+    GeneralContext generalCtx = {&inputVec, &outputVec, &client, &atomic_pairs_counter, mainThreadId,
+                                 &doneShuffling, &mapNsortOutput, &shuffleOutput, barrier, &reduceMutex,
+                                 &outputVecMutex, &sem};
     ThreadCtx threadsCtxs[multiThreadLevel];
+//    std::vector<IntermediateVec*> mapOutputs;
 
     // create threads:
     for (int i = 0; i < multiThreadLevel - 1; i++)
     {
-        threadsCtxs[i].localMapOutput = {};
-        threadsCtxs[i].generalCtx = generalContext;
+        IntermediateVec localMapOutput = {};
+        threadsCtxs[i].localMapOutput = &localMapOutput;
+        threadsCtxs[i].generalCtx = &generalCtx;
         ret = pthread_create(&threads[i], nullptr, threadsPart, &threadsCtxs[i]);
         if (!ret)
         {
@@ -388,3 +373,21 @@ void runMapReduceFramework(const MapReduceClient& client,
     threadsPart(&threadsCtxs[0]);
     exitLib(&threadsCtxs[0], 0);
 }
+
+//GeneralContext(const InputVec* inputVec, OutputVec* outputVec,
+//               const MapReduceClient* client, std::atomic<int>* atomicCounter,
+//               pthread_t mainThreadId, bool* doneShuffling,
+//               std::vector<IntermediateVec>* mapNSortOutput,
+//               std::vector<IntermediateVec>* shuffleOutput,
+//               Barrier* barrier, pthread_mutex_t* reduceMutex,
+//               pthread_mutex_t* outputVecMutex, sem_t* semaphore):
+//
+//        MapInputVector(inputVec), outputVec(outputVec), client(client),
+//        atomicCounter(atomicCounter), mainThreadId(mainThreadId),
+//        doneShuffling(doneShuffling), mapNSortOutput(mapNSortOutput),
+//        shuffleOutput(shuffleOutput), barrier(barrier),
+//        reduceMutex(reduceMutex), outputVecMutex(outputVecMutex),
+//        semaphore(semaphore){}
+
+//GeneralContext* generalCtx;
+//IntermediateVec* localMapOutput;

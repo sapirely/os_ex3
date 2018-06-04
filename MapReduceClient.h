@@ -10,6 +10,7 @@ class K1 {
 public:
 	virtual ~K1(){}
 	virtual bool operator<(const K1 &other) const = 0;
+
 };
 
 class V1 {
@@ -23,6 +24,9 @@ class K2 {
 public:
 	virtual ~K2(){}
 	virtual bool operator<(const K2 &other) const = 0;
+//	friend std::ostream& operator<<(std::ostream& os, const K2& dt){
+//		os << dt <<
+//	}
 };
 
 class V2 {

@@ -65,7 +65,36 @@ public:
 		VCount* v3 = new VCount(count);
 		emit3(k3, v3, context);
 	}
+
+    // todo remove:
+//    virtual void print(K2* key){
+//        KChar* k = (KChar*) key;
+//        std::cout << "key: " << k->c << std::endl;
+//    }
+
+//    const void print(K3* key){
+//        KChar* k = (KChar*) key;
+//        std::cout << "key: " << k->c << std::endl;
+//    }
+//
+//    const void print(V1* val){
+//        VString* v = (VString*) val;
+//        std::cout << "key: " << v->content << std::endl;
+//    }
+//
+//    const void print(V2* val){
+//        VCount* v = (VCount*) val;
+//        std::cout << "key: " << v->count << std::endl;
+//    }
+//
+//    const void print(V3* val){
+//        VCount* v = (VCount*) val;
+//        std::cout << "key: " << v->count << std::endl;
+//    }
+
 };
+
+
 
 
 int main(int argc, char** argv)

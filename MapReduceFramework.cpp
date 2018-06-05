@@ -43,10 +43,10 @@ typedef struct ThreadCtx
  * Comparator (used in std::sort).
  */
 typedef struct comparePairs {
-    bool operator()(const std::pair<K2*,V2*>& lhs, const std::pair<K2*,V2*>&
+    bool operator()(const IntermediatePair& lhs, const IntermediatePair&
     rhs) const
     {
-        return lhs.first < rhs.first;
+        return (*lhs.first) < (*rhs.first);
     }
 } comparePairs;
 
@@ -55,7 +55,8 @@ typedef struct comparePairs {
 // declarations so we can keep up with our funcs
 
 void* threadsPart(void* arg);
-bool areKeysEqual(K2* key1, K2* key2);
+bool areKeysEqual(const K2* key1, const K2* key2);
+//bool areKeysEqual(const K2& key1, const K2& key2);
 void shuffle(ThreadCtx* genCtx);
 void exitLib(ThreadCtx* threadCtx, int exitCode);
 
@@ -68,13 +69,12 @@ void exitLib(ThreadCtx* threadCtx, int exitCode);
  * Checks if two K2* keys are equal (since they have a custom operator)+.
  * @return True if equal, false otherwise.
  */
-bool areKeysEqual(K2* key1, K2* key2)
+bool areKeysEqual(const K2* key1, const K2* key2)
 {
     if ((*key2 < *key1) || (*key1 < *key2)) // todo - derefence
     {
         return false;
     }
-    std::cerr << "EQUAEL" << std::endl;
     return true;
 }
 
@@ -108,45 +108,62 @@ void shuffle(ThreadCtx* genCtx){
     IntermediateVec currentVector;
     K2* maxKey = firstMax(genCtx);
     K2* nextKey;
+    int elementCounter = 0; // for checking if mapNSortOutput is empty
+    int numOfVectors = (int) genCtx->mapNSortOutput->size();
 
-    int numOfVectors;
-    while (!(genCtx->mapNSortOutput->empty())) // go over all vectors in Map's output vector. todo:Infinite loop
+//    for (int j = 0; j < numOfVectors; j++)
+//    {
+//        elementCounter += genCtx->mapNSortOutput->at(j).size();
+//
+//    }
+
+    while (!(genCtx->mapNSortOutput->empty())) //todo:Infinite loop
     {
-        numOfVectors = (int) genCtx->mapNSortOutput->size();
+//        numOfVectors = (int) genCtx->mapNSortOutput->size();
         cerr << "******Map Output vec's size: " << numOfVectors << endl;
 
         // init nextKey to any key other than max key:
         for (int j = 0; j < numOfVectors; j++){
             if (!(areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first)))
             {
+                // found key
+                cerr << "nexKey Checkpoint" << std::endl;
                 nextKey = genCtx->mapNSortOutput->at(j).back().first;
+                break;
             }
         }
 
         // group all pairs with maxKey in currentVector:
-        currentVector = {};
+        currentVector = {}; // does it really overrides it? because size keeps growing todo
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
-            while ((!genCtx->mapNSortOutput->at(j).empty()) &&
-                    areKeysEqual(maxKey, (genCtx->mapNSortOutput->at(j).back()).first))
-            {
+            while ((!genCtx->mapNSortOutput->at(j).empty()) && (areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first))){
+                std::cerr << "EQUAL KEYS" << std::endl;
+                cerr << "mapNSortOutput vec size: " << genCtx->mapNSortOutput->at(j).size() << endl;
                 currentVector.push_back((genCtx->mapNSortOutput->at(j).back()));
+                cerr << "currentVector size: " << currentVector.size() << endl;
                 genCtx->mapNSortOutput->at(j).pop_back();
-                std::cerr << "popped from mapNSortOutput(j)" << std::endl;
+                std::cerr << "popped" << std::endl;
+                cerr << "mapNSortOutput vec size: " << genCtx->mapNSortOutput->at(j).size() << endl;
+//                cerr << "ElementCounter: " << elementCounter << endl;
+//                elementCounter--;
 
             }
             if (genCtx->mapNSortOutput->at(j).empty()){
+//            if (elementCounter==0){
                 std::cerr << "reached empty vector" << std::endl; //todo: NEVER GETS HERE
-                genCtx->mapNSortOutput->erase(genCtx->mapNSortOutput->begin() + j);
+//                genCtx->mapNSortOutput->erase(genCtx->mapNSortOutput->begin() + j); //todo: NEVER GETS HERE
 
                 cerr << "shuffle: deleted vec" << std::endl;
                 cerr << "******mapOut size after delete: " << genCtx->mapNSortOutput->at(j).size() << std::endl;
-            } else
+            }
+            else
             {
                 // if the next key in the current vector is bigger than nextKey, put it in nextKey
                 if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
                 {
+                    cerr << "66666666666666NEXT KEY UPDATED" << std::endl;
                     nextKey = genCtx->mapNSortOutput->at(j).back().first;
                 }
             }
@@ -158,6 +175,7 @@ void shuffle(ThreadCtx* genCtx){
         pthread_mutex_unlock(genCtx->reduceMutex);
 //        cerr << "Thread 0: released  reduceMutex" << endl;
         sem_post(genCtx->semaphore);
+        maxKey = nextKey;
     }
     cerr << "finished shuffle" << endl;   // todo: NEVER GETS HERE
 }

@@ -149,7 +149,7 @@ void shuffle(ThreadCtx* genCtx){
     std::vector<IntermediateVec> shuffledVectors;
     IntermediateVec currentVector;
     K2* maxKey = genCtx->mapNSortOutput->at(0).back().first;
-    K2* nextKey = maxKey;
+    K2* nextKey;
     // find min key
     for (auto vector : *(genCtx->mapNSortOutput))
     {
@@ -158,37 +158,58 @@ void shuffle(ThreadCtx* genCtx){
             maxKey = vector.back().first;
         }
     }
-
-    int numOfVectors = (int) genCtx->mapNSortOutput->size();
+    int numOfVectors;
 
     while (!(genCtx->mapNSortOutput->empty()))
     {
+        numOfVectors = (int) genCtx->mapNSortOutput->size();
+        // init nextKey to any key other than max key
+        for (int j = 0; j < numOfVectors; j++){
+            if (!(areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first)))
+            {
+                nextKey = genCtx->mapNSortOutput->at(j).back().first;
+            }
+        }
+        cerr << "**********SHUFFLE: numOfVectors: " << numOfVectors << endl;
         currentVector = {};
         // add all pairs with maxKey to currentVector
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
-            while (areKeysEqual(maxKey,genCtx->mapNSortOutput->at(j).back()
-                    .first))
+            while ((!genCtx->mapNSortOutput->at(j).empty()) && areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first))
             {
-                currentVector.emplace_back(
-                        genCtx->mapNSortOutput->at(j).back());
+//                IntermediateVec* p;
+//                p = &(genCtx->mapNSortOutput->at(j));
+                cerr << "%%%%%%%SHUFFLE: keys are equal" << endl;
+                currentVector.push_back((genCtx->mapNSortOutput->at(j).back()));
+//                currentVector.push_back((p->back()));
                 genCtx->mapNSortOutput->at(j).pop_back();
             }
-            // if the next key in the current vector is bigger than nextKey,
-            // put it in nextKey
-            if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
+            if (genCtx->mapNSortOutput->at(j).empty()){
+                genCtx->mapNSortOutput->erase(genCtx->mapNSortOutput->begin()
+                                              +j);
+            } else
             {
-                nextKey = genCtx->mapNSortOutput->at(j).back().first;
+                // if the next key in the current vector is bigger than nextKey,
+                // put it in nextKey
+                if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
+                {
+                    nextKey = genCtx->mapNSortOutput->at(j).back().first;
+                }
             }
         }
+        if (currentVector.empty())
+        {
+            cerr << "**********SHUFFLE: current vector is empty" << endl;
+        }
         pthread_mutex_lock(genCtx->reduceMutex);
-        cerr << "Thread 1: locked reduceMutex" << endl;
+        cerr << "Thread 0: locked reduceMutex" << endl;
         genCtx->shuffleOutput->push_back(currentVector);
-        cerr << "Thread 1: pushed shuffle output " << endl;
+        cerr << "Thread 0: pushed shuffle output " << endl;
         pthread_mutex_unlock(genCtx->reduceMutex);
-        cerr << "Thread 1: released  reduceMutex" << endl;
+        cerr << "Thread 0: released  reduceMutex" << endl;
         sem_post(genCtx->semaphore);
+        maxKey = nextKey;
     }
 }
 
@@ -323,7 +344,14 @@ void* threadsPart(void* arg)
             pthread_mutex_unlock(threadCtx->reduceMutex);
             cerr << threadCtx->selfId << ": released reduceMutex" << endl;
             // call reduce on it:
+//            if ((sameKeyedpairs) || (sameKeyedpairs.size()==0))
+//            {
+                cerr << threadCtx->selfId << ": CHECKPOINT" << endl;
+//            }
+
             threadCtx->client->reduce(&sameKeyedpairs, threadCtx);
+            cerr << threadCtx->selfId << ": back from reduce" << endl;
+
         }
     }
 
@@ -393,7 +421,6 @@ void runMapReduceFramework(const MapReduceClient& client,
                          &barrier, &reduceMutex,
                          &outputVecMutex, &sem, &(localMapOutput.at(i))};
         // todo: set values instead of lidros
-        cerr << threadsCtxs[i].selfId << endl;
         ret = pthread_create(&threads[i], nullptr, threadsPart,
                              &threadsCtxs[i]);
         if (ret)

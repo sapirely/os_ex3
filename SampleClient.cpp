@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <string>
 #include <array>
+#include <iostream>
+
 
 class VString : public V1 {
 public:
@@ -15,6 +17,8 @@ public:
 	virtual bool operator<(const K2 &other) const {
 		return c < static_cast<const KChar&>(other).c;
 	}
+
+    
 
 	virtual bool operator<(const K3 &other) const {
 		return c < static_cast<const KChar&>(other).c;

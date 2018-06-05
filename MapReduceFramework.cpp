@@ -68,11 +68,13 @@ void exitLib(ThreadCtx* threadCtx, int exitCode);
  * Checks if two K2* keys are equal (since they have a custom operator)+.
  * @return True if equal, false otherwise.
  */
-bool areKeysEqual(K2* key1, K2* key2){
-    if ((key2<key1) || (key1<key2)) // todo - derefence
+bool areKeysEqual(K2* key1, K2* key2)
+{
+    if ((*key2 < *key1) || (*key1 < *key2)) // todo - derefence
     {
         return false;
     }
+    std::cerr << "EQUAEL" << std::endl;
     return true;
 }
 
@@ -107,11 +109,11 @@ void shuffle(ThreadCtx* genCtx){
     K2* maxKey = firstMax(genCtx);
     K2* nextKey;
 
-
     int numOfVectors;
-    while (!(genCtx->mapNSortOutput->empty())) // go over all vectors in Map's output vector.
+    while (!(genCtx->mapNSortOutput->empty())) // go over all vectors in Map's output vector. todo:Infinite loop
     {
         numOfVectors = (int) genCtx->mapNSortOutput->size();
+        cerr << "******Map Output vec's size: " << numOfVectors << endl;
 
         // init nextKey to any key other than max key:
         for (int j = 0; j < numOfVectors; j++){
@@ -126,14 +128,20 @@ void shuffle(ThreadCtx* genCtx){
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
-            while ((!genCtx->mapNSortOutput->at(j).empty()) && areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first))
+            while ((!genCtx->mapNSortOutput->at(j).empty()) &&
+                    areKeysEqual(maxKey, (genCtx->mapNSortOutput->at(j).back()).first))
             {
                 currentVector.push_back((genCtx->mapNSortOutput->at(j).back()));
                 genCtx->mapNSortOutput->at(j).pop_back();
+                std::cerr << "popped from mapNSortOutput(j)" << std::endl;
+
             }
             if (genCtx->mapNSortOutput->at(j).empty()){
-                genCtx->mapNSortOutput->erase(genCtx->mapNSortOutput->begin()
-                                              +j);
+                std::cerr << "reached empty vector" << std::endl; //todo: NEVER GETS HERE
+                genCtx->mapNSortOutput->erase(genCtx->mapNSortOutput->begin() + j);
+
+                cerr << "shuffle: deleted vec" << std::endl;
+                cerr << "******mapOut size after delete: " << genCtx->mapNSortOutput->at(j).size() << std::endl;
             } else
             {
                 // if the next key in the current vector is bigger than nextKey, put it in nextKey
@@ -144,14 +152,14 @@ void shuffle(ThreadCtx* genCtx){
             }
         }
         pthread_mutex_lock(genCtx->reduceMutex);
-        cerr << "Thread 0: locked reduceMutex" << endl;
+//        cerr << "Thread 0: locked reduceMutex" << endl;
         genCtx->shuffleOutput->push_back(currentVector);
-        cerr << "Thread 0: pushed shuffle output " << endl;
+//        cerr << "Thread 0: pushed shuffle output " << endl;
         pthread_mutex_unlock(genCtx->reduceMutex);
-        cerr << "Thread 0: released  reduceMutex" << endl;
+//        cerr << "Thread 0: released  reduceMutex" << endl;
         sem_post(genCtx->semaphore);
-        maxKey = nextKey;
     }
+    cerr << "finished shuffle" << endl;   // todo: NEVER GETS HERE
 }
 
 
@@ -244,18 +252,18 @@ void* threadsPart(void* arg)
     IntermediateVec sameKeyedpairs;
     while (!(threadCtx->doneShuffling && threadCtx->mapNSortOutput->empty()))
     {
-        cerr << "waiting on semaphore: " << threadCtx->selfId << endl;
+//        cerr << "waiting on semaphore: " << threadCtx->selfId << endl;
         sem_wait(threadCtx->semaphore);
         if (!(threadCtx->shuffleOutput->empty()))
         {
             pthread_mutex_lock(threadCtx->reduceMutex);
-            cerr << threadCtx->selfId<< ": locked reduceMutex" << endl;
-            cerr << threadCtx->selfId << ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
+//            cerr << threadCtx->selfId<< ": locked reduceMutex" << endl;
+//            cerr << threadCtx->selfId << ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             sameKeyedpairs = threadCtx->shuffleOutput->back();
             (*threadCtx->shuffleOutput).pop_back();
-            cerr << threadCtx->selfId<< ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
+//            cerr << threadCtx->selfId<< ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             pthread_mutex_unlock(threadCtx->reduceMutex);
-            cerr << threadCtx->selfId << ": released reduceMutex" << endl;
+//            cerr << threadCtx->selfId << ": released reduceMutex" << endl;
             // call reduce on it:
             threadCtx->client->reduce(&sameKeyedpairs, threadCtx);
             cerr << threadCtx->selfId << ": back from reduce" << endl;

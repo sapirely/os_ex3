@@ -48,10 +48,11 @@ public:
 		}
 	}
 
-	virtual void reduce(const IntermediateVec* pairs, 
+	virtual void reduce(const IntermediateVec* pairs,
 		void* context) const {
 		const char c = static_cast<const KChar*>(pairs->at(0).first)->c;
 		int count = 0;
+        auto tc = (ThreadCtx*) context;
 		for(const IntermediatePair& pair: *pairs) {
 			count += static_cast<const VCount*>(pair.second)->count;
 			delete pair.first;
@@ -76,16 +77,16 @@ int main(int argc, char** argv)
 	inputVec.push_back({nullptr, &s2});
 	inputVec.push_back({nullptr, &s3});
 	runMapReduceFramework(client, inputVec, outputVec, 4);
-	
+
 	for (OutputPair& pair: outputVec) {
 		char c = ((const KChar*)pair.first)->c;
 		int count = ((const VCount*)pair.second)->count;
-		printf("The character %c appeared %d time%s\n", 
+		printf("The character %c appeared %d time%s\n",
 			c, count, count > 1 ? "s" : "");
 		delete pair.first;
 		delete pair.second;
 	}
-	
+
 	return 0;
 }
 

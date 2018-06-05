@@ -13,101 +13,42 @@
 #include <algorithm>
 #include <functional>
 #include <semaphore.h>
+#include "Barrier.h"
 
 using namespace std;
 
-// ---------------------------- Barrier class --------------------------
-
-//class Barrier {
-//public:
-//    Barrier(int numThreads);
-//    ~Barrier();
-//    void barrier();
-//
-//private:
-//    pthread_mutex_t mutex;
-//    pthread_cond_t cv;
-//    int count;
-//    int numThreads;
-//};
-
-Barrier::Barrier(int numThreads) : mutex(PTHREAD_MUTEX_INITIALIZER),
-                                   cv(PTHREAD_COND_INITIALIZER),
-                                   count(0),
-                                   numThreads(numThreads){}
-
-Barrier::~Barrier()
-{
-    if (pthread_mutex_destroy(&mutex) != 0) {
-        fprintf(stderr, "[[Barrier]] error on pthread_mutex_destroy");
-        exit(1);
-    }
-    if (pthread_cond_destroy(&cv) != 0){
-        fprintf(stderr, "[[Barrier]] error on pthread_cond_destroy");
-        exit(1);
-    }
-}
-
-void Barrier::barrier()
-{
-    if (pthread_mutex_lock(&mutex) != 0){
-        fprintf(stderr, "[[Barrier]] error on pthread_mutex_lock");
-        exit(1);
-    }
-    if (++count < numThreads) {
-        if (pthread_cond_wait(&cv, &mutex) != 0){
-            fprintf(stderr, "[[Barrier]] error on pthread_cond_wait");
-            exit(1);
-        }
-    } else {
-        count = 0;
-        if (pthread_cond_broadcast(&cv) != 0) {
-            fprintf(stderr, "[[Barrier]] error on pthread_cond_broadcast");
-            exit(1);
-        }
-    }
-    if (pthread_mutex_unlock(&mutex) != 0) {
-        fprintf(stderr, "[[Barrier]] error on pthread_mutex_unlock");
-        exit(1);
-    }
-}
-
-// -------------------------- struct SharedContext------------------------------
-//
-
-//typedef struct SharedContext
-//{
-//    const InputVec* MapInputVector;
-//    OutputVec* outputVec;
-//    const MapReduceClient* client;
-//    std::atomic<int>* atomicCounter;
-//    bool* doneShuffling;
-//    std::vector<IntermediateVec>* mapNSortOutput;
-//    std::vector<IntermediateVec>* shuffleOutput;
-//    Barrier* barrier;
-//    pthread_mutex_t* reduceMutex;
-//    pthread_mutex_t* outputVecMutex;
-//    sem_t* semaphore;
-//} SharedContext;
 
 // -------------------------- struct ThreadCtx ------------------------------
-//typedef struct ThreadCtx
-//{
-//    const InputVec* MapInputVector;
-//    OutputVec* outputVec;
-//    const MapReduceClient* client;
-//    std::atomic<int>* atomicCounter;
-//    int mainThreadId;
-//    int selfId;
-//    bool* doneShuffling;
-//    std::vector<IntermediateVec>* mapNSortOutput;
-//    std::vector<IntermediateVec>* shuffleOutput;
-//    Barrier* barrier;
-//    pthread_mutex_t* reduceMutex;
-//    pthread_mutex_t* outputVecMutex;
-//    sem_t* semaphore;
-//    IntermediateVec* localMapOutput;
-//}ThreadCtx;
+typedef struct ThreadCtx
+{
+    const InputVec* MapInputVector;
+    OutputVec* outputVec;
+    const MapReduceClient* client;
+    std::atomic<int>* atomicCounter;
+    int selfId;
+    bool* doneShuffling;
+    std::vector<IntermediateVec>* mapNSortOutput;
+    std::vector<IntermediateVec>* shuffleOutput;
+    Barrier* barrier;
+    pthread_mutex_t* reduceMutex;
+    pthread_mutex_t* outputVecMutex;
+    sem_t* semaphore;
+    IntermediateVec* localMapOutput;
+}ThreadCtx;
+
+
+// --------------------- struct Comparator for sort --------------------
+
+/**
+ * Comparator (used in std::sort).
+ */
+typedef struct comparePairs {
+    bool operator()(const std::pair<K2*,V2*>& lhs, const std::pair<K2*,V2*>&
+    rhs) const
+    {
+        return lhs.first < rhs.first;
+    }
+} comparePairs;
 
 
 // -------------------------- inner funcs ------------------------------
@@ -118,15 +59,10 @@ bool areKeysEqual(K2* key1, K2* key2);
 void shuffle(ThreadCtx* genCtx);
 void exitLib(ThreadCtx* threadCtx, int exitCode);
 
+
 // ---------------------------- helper methods --------------------------
 
-typedef struct comparePairs {
-    bool operator()(const std::pair<K2*,V2*>& lhs, const std::pair<K2*,V2*>&
-    rhs) const
-    {
-        return lhs.first < rhs.first;
-    }
-} comparePairs;
+
 
 /**
  * Checks if two K2* keys are equal (since they have a custom operator)+.
@@ -146,11 +82,11 @@ bool areKeysEqual(K2* key1, K2* key2){
  */
 void shuffle(ThreadCtx* genCtx){
     cerr << "Thread 0: started shuffle" << endl;
-    std::vector<IntermediateVec> shuffledVectors;
     IntermediateVec currentVector;
     K2* maxKey = genCtx->mapNSortOutput->at(0).back().first;
     K2* nextKey;
-    // find min key
+
+    // find first max key:
     for (auto vector : *(genCtx->mapNSortOutput))
     {
         if (maxKey < vector.back().first)
@@ -158,8 +94,8 @@ void shuffle(ThreadCtx* genCtx){
             maxKey = vector.back().first;
         }
     }
-    int numOfVectors;
 
+    int numOfVectors;
     while (!(genCtx->mapNSortOutput->empty()))
     {
         numOfVectors = (int) genCtx->mapNSortOutput->size();
@@ -170,7 +106,6 @@ void shuffle(ThreadCtx* genCtx){
                 nextKey = genCtx->mapNSortOutput->at(j).back().first;
             }
         }
-        cerr << "**********SHUFFLE: numOfVectors: " << numOfVectors << endl;
         currentVector = {};
         // add all pairs with maxKey to currentVector
         for (int j = 0; j < numOfVectors; j++)
@@ -178,11 +113,7 @@ void shuffle(ThreadCtx* genCtx){
             // pop all vectors with key maxKey into currentVector
             while ((!genCtx->mapNSortOutput->at(j).empty()) && areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first))
             {
-//                IntermediateVec* p;
-//                p = &(genCtx->mapNSortOutput->at(j));
-                cerr << "%%%%%%%SHUFFLE: keys are equal" << endl;
                 currentVector.push_back((genCtx->mapNSortOutput->at(j).back()));
-//                currentVector.push_back((p->back()));
                 genCtx->mapNSortOutput->at(j).pop_back();
             }
             if (genCtx->mapNSortOutput->at(j).empty()){
@@ -197,10 +128,6 @@ void shuffle(ThreadCtx* genCtx){
                     nextKey = genCtx->mapNSortOutput->at(j).back().first;
                 }
             }
-        }
-        if (currentVector.empty())
-        {
-            cerr << "**********SHUFFLE: current vector is empty" << endl;
         }
         pthread_mutex_lock(genCtx->reduceMutex);
         cerr << "Thread 0: locked reduceMutex" << endl;
@@ -226,8 +153,11 @@ void exitLib(ThreadCtx* threadCtx, int exitCode)
     exit(exitCode);
 }
 
+
 // ------------------------------- todo's -----------------------------
-// semaphore not always freed
+//check sys calls
+// call destructors / free allocated memory?
+
 
 // ---------------------------- library methods -------------------------
 
@@ -262,39 +192,19 @@ void emit3 (K3* key, V3* value, void* context){
 void* threadsPart(void* arg)
 {
     auto threadCtx = (ThreadCtx*) arg;
-//    int old_value = 0;
+
     // call map on MapInputVector's elements:
-    K1* key;
-    V1* val;
     const InputVec input = (*threadCtx->MapInputVector);
-//    InputPair* pair;
-//    while ((threadCtx->atomicCounter->load()) <
-//            (int) threadCtx->MapInputVector->size())
-//    int bound = (int) threadCtx->MapInputVector->size();
     int old_value = (*(threadCtx->atomicCounter))++;
     while ((unsigned int) old_value < input.size())
     {
-//        cerr << threadCtx->selfId << ": old value: " << old_value << endl;
-//        old_value = (*(threadCtx->atomicCounter))++;
-        threadCtx->client->map(input.at(old_value).first, input.at(old_value)
-                .second, threadCtx);
-//        if (old_value < ((int) threadCtx->MapInputVector->size()))
-//        {
+        threadCtx->client->map(input.at((unsigned int)old_value).first,
+                               input.at((unsigned int)old_value).second, threadCtx);
         old_value = (*(threadCtx->atomicCounter))++;
-//        key = threadCtx->MapInputVector->at(old_value).first;
-//        val = threadCtx->MapInputVector->at(old_value).second;
-//        }
-//        else
-//        {
-//            std::cerr << "break" << endl;
-//            break;
-//        }
 
         // sort the resulting vector of pairs and push it to the queue of intermediate vectors:
         try
         {
-//            std::sort(threadCtx->localMapOutput->begin(),
-//                      threadCtx->localMapOutput->end(), comparePairs);
             std::sort(threadCtx->localMapOutput->begin(),
                       threadCtx->localMapOutput->end(), comparePairs());
             threadCtx->mapNSortOutput->push_back(*(threadCtx->localMapOutput));
@@ -308,47 +218,31 @@ void* threadsPart(void* arg)
 
     // wait for all the other threads to finish map&sort:
     threadCtx->barrier->barrier();
-    cerr << "post barrier thread id: " << threadCtx->selfId << endl;
 
     // if it's the main thread, start shuffling.
-//    cerr << "thread id: " << threadCtx->selfId << endl;
     if (threadCtx->selfId == 0)
     {
-//        cerr << threadCtx->selfId << ": in shuffle " << endl;
         shuffle(threadCtx);
         *(threadCtx->doneShuffling) = true;
     }
 
-    // reduce:
+    // reduce phase:
     IntermediateVec sameKeyedpairs;
-    while (!(threadCtx->doneShuffling &&
-             threadCtx->mapNSortOutput->empty()))
+    while (!(threadCtx->doneShuffling && threadCtx->mapNSortOutput->empty()))
     {
-        // pop the last vector of same keyed pairs from the intermediate-vectors vector:
         cerr << "waiting on semaphore: " << threadCtx->selfId << endl;
         sem_wait(threadCtx->semaphore);
         if (!(threadCtx->shuffleOutput->empty()))
         {
             pthread_mutex_lock(threadCtx->reduceMutex);
             cerr << threadCtx->selfId<< ": locked reduceMutex" << endl;
-            cerr << threadCtx->selfId << ": shuffle output size: " <<
-                                                threadCtx->shuffleOutput->size
-                    () << endl;
+            cerr << threadCtx->selfId << ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             sameKeyedpairs = threadCtx->shuffleOutput->back();
-//            cerr << threadCtx->selfId<< ": sameKeyedpairs: " << sameKeyedpairs
-//                    .front().first << endl;
             (*threadCtx->shuffleOutput).pop_back();
-            cerr << threadCtx->selfId<< ": shuffle output size: " <<
-                 threadCtx->shuffleOutput->size
-                         () << endl;
+            cerr << threadCtx->selfId<< ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             pthread_mutex_unlock(threadCtx->reduceMutex);
             cerr << threadCtx->selfId << ": released reduceMutex" << endl;
             // call reduce on it:
-//            if ((sameKeyedpairs) || (sameKeyedpairs.size()==0))
-//            {
-                cerr << threadCtx->selfId << ": CHECKPOINT" << endl;
-//            }
-
             threadCtx->client->reduce(&sameKeyedpairs, threadCtx);
             cerr << threadCtx->selfId << ": back from reduce" << endl;
 
@@ -370,16 +264,15 @@ void* threadsPart(void* arg)
 void runMapReduceFramework(const MapReduceClient& client,
                            const InputVec& inputVec, OutputVec& outputVec,
                            int multiThreadLevel){
+
     // initialize context's variables & containers:
     pthread_t threads[multiThreadLevel];
     std::atomic<int> atomic_pairs_counter(0);
-//    pthread_t mainThreadId = threadCtx->selfId;
     bool doneShuffling = false;
     std::vector<IntermediateVec> mapNsortOutput = {};
     std::vector<IntermediateVec> shuffleOutput = {};
 
     // initialize barrier, mutexes & semaphore:
-//    auto barrier = new Barrier(multiThreadLevel);
     Barrier barrier(multiThreadLevel);
     pthread_mutex_t reduceMutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_t outputVecMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -393,36 +286,22 @@ void runMapReduceFramework(const MapReduceClient& client,
         pthread_mutex_destroy(&outputVecMutex);
         exit(1);
     }
-
-    ThreadCtx threadsCtxs[multiThreadLevel];
-    vector<IntermediateVec> localMapOutput(multiThreadLevel, IntermediateVec
-            (0));
-//    for (int i=0; i<multiThreadLevel; i++){
-//        localMapOutput.push_back({});
-//        cerr << "l: " << localMapOutput.at(i) << endl;
-//    }
-
-    threadsCtxs[0]= {&inputVec, &outputVec, &client,
-                     &atomic_pairs_counter, 0,
-                     &doneShuffling, &mapNsortOutput, &shuffleOutput,
-                     &barrier, &reduceMutex,
-                     &outputVecMutex, &sem, &(localMapOutput.at(0))};
+    ThreadCtx threadsCtxs[multiThreadLevel]; // all threads contexts
+    // initialize context for thread 0:
+    vector<IntermediateVec> localMapOutput((unsigned int)multiThreadLevel, IntermediateVec(0));
+    threadsCtxs[0]= {&inputVec, &outputVec, &client, &atomic_pairs_counter, 0, &doneShuffling,
+                     &mapNsortOutput, &shuffleOutput, &barrier, &reduceMutex, &outputVecMutex, &sem,
+                     &(localMapOutput.at(0))};
     // todo: set values instead of lidros
-//    ret = pthread_create(&threads[0], nullptr, threadsPart,
-//                         &threadsCtxs[0]);
 
-    // create threads:
+    // create all threads & initialize their contexts:
     for (int i = 1; i < multiThreadLevel; i++)
     {
-//        cerr << "i: " << i << endl;
-        threadsCtxs[i]= {&inputVec, &outputVec, &client,
-                         &atomic_pairs_counter, i,
-                         &doneShuffling, &mapNsortOutput, &shuffleOutput,
-                         &barrier, &reduceMutex,
-                         &outputVecMutex, &sem, &(localMapOutput.at(i))};
+        threadsCtxs[i]= {&inputVec, &outputVec, &client, &atomic_pairs_counter, i, &doneShuffling,
+                         &mapNsortOutput, &shuffleOutput, &barrier, &reduceMutex, &outputVecMutex,
+                         &sem, &(localMapOutput.at(i))};
         // todo: set values instead of lidros
-        ret = pthread_create(&threads[i], nullptr, threadsPart,
-                             &threadsCtxs[i]);
+        ret = pthread_create(&threads[i], nullptr, threadsPart, &threadsCtxs[i]);
         if (ret)
         {
             fprintf(stderr, "An error has occurred while creating a thread.");

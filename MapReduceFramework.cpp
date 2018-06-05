@@ -77,37 +77,52 @@ bool areKeysEqual(K2* key1, K2* key2){
 }
 
 /**
- * Create vector of vectors with the same key.
- * @param genCtx - general context
+ * Finds first maximun pair of all the last pairs of all vectors in Map's output.
+ * @param ctx
+ * @return
  */
-void shuffle(ThreadCtx* genCtx){
-    cerr << "Thread 0: started shuffle" << endl;
-    IntermediateVec currentVector;
-    K2* maxKey = genCtx->mapNSortOutput->at(0).back().first;
-    K2* nextKey;
 
-    // find first max key:
-    for (auto vector : *(genCtx->mapNSortOutput))
+K2* firstMax(ThreadCtx* ctx)
+{
+    K2* maxKey = ctx->mapNSortOutput->at(0).back().first;
+    for (auto vector : *(ctx->mapNSortOutput))
     {
         if (maxKey < vector.back().first)
         {
             maxKey = vector.back().first;
         }
     }
+    return maxKey;
+}
+
+
+
+/**
+ * Create vector of vectors with the same key.
+ * @param genCtx - general context
+ */
+void shuffle(ThreadCtx* genCtx){
+    cerr << "Thread 0: started shuffle" << endl;
+    IntermediateVec currentVector;
+    K2* maxKey = firstMax(genCtx);
+    K2* nextKey;
+
 
     int numOfVectors;
-    while (!(genCtx->mapNSortOutput->empty()))
+    while (!(genCtx->mapNSortOutput->empty())) // go over all vectors in Map's output vector.
     {
         numOfVectors = (int) genCtx->mapNSortOutput->size();
-        // init nextKey to any key other than max key
+
+        // init nextKey to any key other than max key:
         for (int j = 0; j < numOfVectors; j++){
             if (!(areKeysEqual(maxKey, genCtx->mapNSortOutput->at(j).back().first)))
             {
                 nextKey = genCtx->mapNSortOutput->at(j).back().first;
             }
         }
+
+        // group all pairs with maxKey in currentVector:
         currentVector = {};
-        // add all pairs with maxKey to currentVector
         for (int j = 0; j < numOfVectors; j++)
         {
             // pop all vectors with key maxKey into currentVector
@@ -121,8 +136,7 @@ void shuffle(ThreadCtx* genCtx){
                                               +j);
             } else
             {
-                // if the next key in the current vector is bigger than nextKey,
-                // put it in nextKey
+                // if the next key in the current vector is bigger than nextKey, put it in nextKey
                 if (nextKey < genCtx->mapNSortOutput->at(j).back().first)
                 {
                     nextKey = genCtx->mapNSortOutput->at(j).back().first;

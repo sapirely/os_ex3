@@ -58,7 +58,6 @@ typedef struct comparePairs {
 
 void* threadsPart(void* arg);
 bool areKeysEqual(const K2* key1, const K2* key2);
-//bool areKeysEqual(const K2& key1, const K2& key2);
 void shuffle(ThreadCtx* threadCtx);
 void exitLib(ThreadCtx* threadCtx, int exitCode);
 
@@ -122,13 +121,14 @@ void shuffle(ThreadCtx* threadCtx){
             // pop all vectors with key maxKey into currentVector
             while ((!threadCtx->mapNSortOutput->empty()) &&
                    (!threadCtx->mapNSortOutput->at(j).empty()) &&
-                   (areKeysEqual(maxKey, threadCtx->mapNSortOutput->at(j).back().first))){
+                   (areKeysEqual(maxKey, threadCtx->mapNSortOutput->at(j).back().first)))
+            {
                 p = &(threadCtx->mapNSortOutput->at(j).back());
                 currentVector.push_back(*p);
                 threadCtx->mapNSortOutput->at(j).pop_back();
-
             }
-            if (threadCtx->mapNSortOutput->at(j).empty()){
+            if (threadCtx->mapNSortOutput->at(j).empty())
+            {
 
                 threadCtx->mapNSortOutput->erase(threadCtx->mapNSortOutput->begin() + j);
                 j-= 1; // todo so that we'll get over the next vector, which will get this input. IS THAT OK??
@@ -143,7 +143,6 @@ void shuffle(ThreadCtx* threadCtx){
         threadCtx->shuffleOutput->push_back(currentVector);
         pthread_mutex_unlock(threadCtx->reduceMutex);
         sem_post(threadCtx->semaphore);
-
     }
     // frees all threads waiting on the semaphore
     for (int i=0; i<threadCtx->multiThreadLevel; i++){
@@ -157,9 +156,22 @@ void shuffle(ThreadCtx* threadCtx){
  */
 void exitLib(ThreadCtx* threadCtx)
 {
-    sem_destroy(threadCtx->semaphore);
-    pthread_mutex_destroy(threadCtx->reduceMutex);
-    pthread_mutex_destroy(threadCtx->outputVecMutex);
+    if (sem_destroy(threadCtx->semaphore) != 0)
+    {
+        std::cerr << "Error in sem_destroy" << std::endl;
+        exit(1);
+    }
+    if (pthread_mutex_destroy(threadCtx->reduceMutex))
+    {
+        std::cerr << "Error in pthread_mutex_destroy" << std::endl;
+        exit(1);
+
+    }
+    if (pthread_mutex_destroy(threadCtx->outputVecMutex))
+    {
+        std::cerr << "Error in pthread_mutex_destroy" << std::endl;
+        exit(1);
+    }
 }
 
 
@@ -218,10 +230,18 @@ void* threadsPart(void* arg)
     {
         std::sort(threadCtx->localMapOutput->begin(),
                   threadCtx->localMapOutput->end(), comparePairs());
-        pthread_mutex_lock(threadCtx->mapOutputMutex); //todo - ADDED
+        if (pthread_mutex_lock(threadCtx->mapOutputMutex))
+        {
+            std::cerr << "error on pthread_mutex_lock" << std::endl;
+            exit(1);
+        }
         threadCtx->mapNSortOutput->push_back(*(threadCtx->localMapOutput)); // todo only place where we
         // push to mapNSort, and it's never an empty vector.?????????????????????????????????????????
-        pthread_mutex_unlock(threadCtx->mapOutputMutex);
+        if (pthread_mutex_unlock(threadCtx->mapOutputMutex) != 0)
+        {
+            std::cerr << "error on pthread_mutex_unlock" << std::endl;
+            exit(1);
+        }
     }
     catch (const std::bad_alloc &e)
     {

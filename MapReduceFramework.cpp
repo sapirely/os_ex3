@@ -88,8 +88,10 @@ bool areKeysEqual(const K2* key1, const K2* key2)
 K2* findMax(ThreadCtx *ctx)
 {
     K2* maxKey = ctx->mapNSortOutput->at(0).back().first;
+    cerr << "********** maxKey: " << maxKey << std::endl;
     for (auto vector : *(ctx->mapNSortOutput))
     {
+        cerr << "********** vec: " << vector.back().first << std::endl;
         if (maxKey < vector.back().first)
         {
             maxKey = vector.back().first;
@@ -129,22 +131,13 @@ void shuffle(ThreadCtx* threadCtx){
     cerr << "Thread 0: started shuffle" << endl;
     IntermediateVec currentVector;
     K2* maxKey;
-    int elementCounter = 0; // for checking if mapNSortOutput is empty
+
 //    int numOfVectors;
     int numOfVectors = (int) threadCtx->mapNSortOutput->size();
-    // todo: remove
-    for (int j = 0; j < numOfVectors; j++)
-    {
-        std::cerr << "j: " << j << endl;
-        elementCounter += threadCtx->mapNSortOutput->at(j).size();
-
-    }
-    cerr << "******elementCounter: " << elementCounter << endl;
-
+    cerr << "numOfVectors: " << numOfVectors << endl;
     while (!(*threadCtx->doneShuffling))
     {
-        maxKey = findMax(threadCtx);
-        cerr << "******Map Output vec's size: " << numOfVectors << endl;
+        maxKey = findMax(threadCtx); //todo: CRUSHES HERE?
 
         // group all pairs with maxKey in currentVector:
         currentVector = {};
@@ -165,11 +158,14 @@ void shuffle(ThreadCtx* threadCtx){
 
             }
             if (threadCtx->mapNSortOutput->at(j).empty()){
-
                 std::cerr << "reached empty vector" << std::endl;
                 threadCtx->mapNSortOutput->erase(threadCtx->mapNSortOutput->begin() + j);
-                *(threadCtx->doneShuffling) = true;
+                numOfVectors = (int) threadCtx->mapNSortOutput->size();
                 cerr << "shuffle: deleted vec" << std::endl;
+                if (threadCtx->mapNSortOutput->empty())
+                {
+                    *(threadCtx->doneShuffling) = true;
+                }
             }
         }
         pthread_mutex_lock(threadCtx->reduceMutex);
@@ -182,7 +178,7 @@ void shuffle(ThreadCtx* threadCtx){
 
     }
     // frees all threads waiting on the semaphore
-    for (int i=0; i<threadCtx->multiThreadLevel; i++){
+    for (int i=0; i<threadCtx->multiThreadLevel - 1; i++){
         sem_post(threadCtx->semaphore);
     }
     cerr << "finished shuffle" << endl;
@@ -279,7 +275,6 @@ void* threadsPart(void* arg)
     IntermediateVec sameKeyedpairs;
     while (!(threadCtx->doneShuffling && threadCtx->shuffleOutput->empty()))
     {
-//        cerr << "waiting on semaphore: " << threadCtx->selfId << endl;
         if (!(*threadCtx->doneShuffling))
         {
             sem_wait(threadCtx->semaphore);
@@ -290,16 +285,12 @@ void* threadsPart(void* arg)
                 fprintf(stderr, "[[Reduce]] error on pthread_mutex_lock");
                 exit(1);
             }
-//            cerr << threadCtx->selfId<< ": locked reduceMutex" << endl;
-//            cerr << threadCtx->selfId << ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             sameKeyedpairs = threadCtx->shuffleOutput->back();
             (*threadCtx->shuffleOutput).pop_back();
-//            cerr << threadCtx->selfId<< ": shuffle output size: " << threadCtx->shuffleOutput->size() << endl;
             if (pthread_mutex_unlock(threadCtx->reduceMutex) != 0) {
                 fprintf(stderr, "[[Reduce]] error on pthread_mutex_unlock");
                 exit(1);
             }
-//            cerr << threadCtx->selfId << ": released reduceMutex" << endl;
             // call reduce on it:
             threadCtx->client->reduce(&sameKeyedpairs, threadCtx);
             cerr << threadCtx->selfId << ": back from reduce" << endl;
@@ -367,11 +358,12 @@ void runMapReduceFramework(const MapReduceClient& client,
             fprintf(stderr, "An error has occurred while creating a thread.");
             exitLib(&threadsCtxs[i], 1);
         }
+//        pthread_join(threads[i], nullptr);
     }
     threadsPart(&threadsCtxs[0]);
-    for (int i=1; i<multiThreadLevel; i++)
-    {
-        pthread_join(threads[i], nullptr);
-    }
+//    for (int i=1; i<multiThreadLevel; i++)
+//    {
+//        pthread_join(threads[i], nullptr);
+//    }
 //    exitLib(&threadsCtxs[0], 0);
 }

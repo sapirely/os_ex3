@@ -80,6 +80,9 @@ int main(int argc, char** argv)
 	InputVec inputVec;
 	OutputVec outputVec;
 
+    //todo: remove
+    std::vector<InputVec> vecvec(5);
+
 	Vint s1(86532);
 	Vint s2(657);
 	Vint s3(5);
@@ -95,11 +98,11 @@ int main(int argc, char** argv)
 	Vint s13(7);
 	Vint s14(8888);
 
-	inputVec.push_back({nullptr, &s1});
-	inputVec.push_back({nullptr, &s2});
-	inputVec.push_back({nullptr, &s3});
-	inputVec.push_back({nullptr, &s4});
-	inputVec.push_back({nullptr, &s5});
+    inputVec.push_back({nullptr, &s1});
+    inputVec.push_back({nullptr, &s2});
+    inputVec.push_back({nullptr, &s3});
+    inputVec.push_back({nullptr, &s4});
+    inputVec.push_back({nullptr, &s5});
 	inputVec.push_back({nullptr, &s6});
 	inputVec.push_back({nullptr, &s7});
 	inputVec.push_back({nullptr, &s8});
@@ -110,7 +113,12 @@ int main(int argc, char** argv)
 	inputVec.push_back({nullptr, &s13});
 	inputVec.push_back({nullptr, &s14});
 
-	runMapReduceFramework(client, inputVec, outputVec, 5);
+
+
+
+
+//	runMapReduceFramework(client, inputVec, outputVec, 5);
+	runMapReduceFramework(client, inputVec, outputVec, 2);
 
 	for (OutputPair& pair: outputVec) {
 		bool key = ((const Kbool*)pair.first)->key;

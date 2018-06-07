@@ -99,26 +99,35 @@ public:
 
 int main(int argc, char** argv)
 {
-	CounterClient client;
-	InputVec inputVec;
-	OutputVec outputVec;
-	VString s1("This string is full of characters");
-	VString s2("Multithreading is awesome");
-	VString s3("conditions are race bad");
-	inputVec.push_back({nullptr, &s1});
-	inputVec.push_back({nullptr, &s2});
-	inputVec.push_back({nullptr, &s3});
-	runMapReduceFramework(client, inputVec, outputVec, 4);
+    for (int i=0; i<200; i++)
+    {
+        CounterClient client;
+        InputVec inputVec;
+        OutputVec outputVec;
+        VString s1("This string is full of characters");
+        VString s2("Multithreading is awesome");
+        VString s3("conditions are race bad");
+        inputVec.push_back({nullptr, &s1});
+        inputVec.push_back({nullptr, &s2});
+        inputVec.push_back({nullptr, &s3});
+        runMapReduceFramework(client, inputVec, outputVec, 4);
+        if (outputVec.size() != 21) {
 
-	for (OutputPair& pair: outputVec) {
-		char c = ((const KChar*)pair.first)->c;
-		int count = ((const VCount*)pair.second)->count;
-		printf("The character %c appeared %d time%s\n",
-			c, count, count > 1 ? "s" : "");
-		delete pair.first;
-		delete pair.second;
-	}
+            printf("ERROR size of output:%d\n", outputVec.size());
+        }
 
+        for (OutputPair &pair: outputVec)
+        {
+            char c = ((const KChar *) pair.first)->c;
+            int count = ((const VCount *) pair.second)->count;
+            //		printf("The character %c appeared %d time%s\n",
+            //			c, count, count > 1 ? "s" : "");
+            delete pair.first;
+            delete pair.second;
+        }
+        inputVec.clear();
+        outputVec.clear();
+    }
 	return 0;
 }
 

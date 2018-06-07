@@ -49,7 +49,7 @@ public:
             k2 = new Kbool(1);
         }
 		// todo: remove
-		std::cout << "Map: (" << k2->key << "," << v2->sum << ")" << std::endl;
+//		std::cout << "Map: (" << k2->key << "," << v2->sum << ")" << std::endl;
 		//
         emit2(k2, v2, context);
 	}
@@ -117,7 +117,7 @@ int main(int argc, char** argv)
 
 
 //	runMapReduceFramework(client, inputVec, outputVec, 5);
-	runMapReduceFramework(client, inputVec, outputVec, 5);
+	runMapReduceFramework(client, inputVec, outputVec, 10);
 
 	for (OutputPair& pair: outputVec) {
 		bool key = ((const Kbool*)pair.first)->key;

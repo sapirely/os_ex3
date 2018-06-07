@@ -129,7 +129,6 @@ void shuffle(ThreadCtx* threadCtx){
             }
             if (threadCtx->mapNSortOutput->at(j).empty())
             {
-
                 threadCtx->mapNSortOutput->erase(threadCtx->mapNSortOutput->begin() + j);
                 j-= 1; // todo so that we'll get over the next vector, which will get this input. IS THAT OK??
                 if (threadCtx->mapNSortOutput->empty())
@@ -139,14 +138,32 @@ void shuffle(ThreadCtx* threadCtx){
                 }
             }
         }
-        pthread_mutex_lock(threadCtx->reduceMutex);
+
+        // push current vector to buffer:
+        if (pthread_mutex_lock(threadCtx->reduceMutex) != 0)
+        {
+            std::cerr << "[[Shuffle]] error on pthread_mutex_lock" << std::endl;
+            exit(1);
+        }
         threadCtx->shuffleOutput->push_back(currentVector);
-        pthread_mutex_unlock(threadCtx->reduceMutex);
-        sem_post(threadCtx->semaphore);
+        if (pthread_mutex_unlock(threadCtx->reduceMutex) != 0)
+        {
+            std::cerr << "[[Shuffle]] error on pthread_mutex_unlock" << std::endl;
+            exit(1);
+        }
+        if (sem_post(threadCtx->semaphore) != 0)
+        {
+            std::cerr << "[[Shuffle]] error on sem_post" << std::endl;
+            exit(1);
+        }
     }
     // frees all threads waiting on the semaphore
     for (int i=0; i<threadCtx->multiThreadLevel; i++){
-        sem_post(threadCtx->semaphore);
+        if (sem_post(threadCtx->semaphore) != 0)
+        {
+            std::cerr << "[[Shuffle]] error on sem_post" << std::endl;
+            exit(1);
+        }
     }
 }
 
@@ -264,7 +281,12 @@ void* threadsPart(void* arg)
     {
         if (!(*threadCtx->doneShuffling))
         {
-            sem_wait(threadCtx->semaphore);
+            if (sem_wait(threadCtx->semaphore))
+            {
+                std::cerr << "[[Reduce]] error on sem_post" << std::endl;
+                exit(1);
+            }
+//            sem_wait(threadCtx->semaphore);
         }
         if (!(threadCtx->shuffleOutput->empty()))
         {
@@ -318,8 +340,8 @@ void runMapReduceFramework(const MapReduceClient& client,
     {
         std::cerr << "An error has occurred while initializing the semaphore." << std::endl;
         sem_destroy(&sem);
-        pthread_mutex_destroy(&reduceMutex);
-        pthread_mutex_destroy(&outputVecMutex);
+        pthread_mutex_destroy(&reduceMutex); // todo: needed?
+        pthread_mutex_destroy(&outputVecMutex); // todo: needed?
         exit(1);
     }
     ThreadCtx threadsCtxs[multiThreadLevel]; // all threads contexts
@@ -351,6 +373,11 @@ void runMapReduceFramework(const MapReduceClient& client,
     threadsPart(&threadsCtxs[0]);
     for (int i=1; i<multiThreadLevel; i++)
     {
+        if (pthread_join(threads[i], nullptr) != 0)
+        {
+            std::cerr << "error on pthread_join" << std::endl;
+            exit(1);
+        }
         pthread_join(threads[i], nullptr);
     }
     exitLib(&threadsCtxs[0]);
